@@ -719,8 +719,10 @@ window.__A108_CHECKOUT_HANDLER__ = function(cart) {
   }
 
   const CHECKOUT_MIN_H = 650;
+  const CHECKOUT_SAFE_PAD_PX = 48; // compliance bar (~38px) + buffer
   const CONTENT_MS = 520;
   const CONTENT_EASE = 'cubic-bezier(.2,.8,.2,1)';
+  const FADE_MS = 180;
   let checkoutResizeObserver = null;
   let checkoutPollTimer = null;
   let checkoutSettleTimer = null;
@@ -748,14 +750,24 @@ window.__A108_CHECKOUT_HANDLER__ = function(cart) {
     try { return container.querySelector('iframe'); } catch { return null; }
   }
 
+  function normalizeCheckoutIframeStyles() {
+    const iframe = getIframeEl();
+    if (!iframe) return;
+    // Paddle may inject very high z-index / fixed positioning; keep iframe below Back button.
+    try { iframe.style.zIndex = '0'; } catch {}
+    try { iframe.style.position = 'relative'; } catch {}
+    try { iframe.style.top = '0px'; iframe.style.left = '0px'; } catch {}
+  }
+
   function getCheckoutViewHeight() {
     if (!backBtn || !container) return CHECKOUT_MIN_H;
     const backH = Math.ceil(backBtn.getBoundingClientRect().height || 0);
     const iframe = getIframeEl();
     const iframeH = iframe ? Math.ceil(iframe.getBoundingClientRect().height || 0) : 0;
     const containerH = Math.ceil(container.getBoundingClientRect().height || 0);
-    const innerH = Math.max(iframeH, containerH, CHECKOUT_MIN_H);
-    return Math.max(CHECKOUT_MIN_H, backH + innerH);
+    const containerScrollH = Math.ceil(container.scrollHeight || 0);
+    const innerH = Math.max(iframeH, containerH, containerScrollH, CHECKOUT_MIN_H);
+    return Math.max(CHECKOUT_MIN_H, backH + innerH + CHECKOUT_SAFE_PAD_PX);
   }
 
   async function adjustToCheckoutHeight() {
@@ -764,6 +776,7 @@ window.__A108_CHECKOUT_HANDLER__ = function(cart) {
     if (isAdjusting) return;
     isAdjusting = true;
     try {
+      normalizeCheckoutIframeStyles();
       const measuredH = getCheckoutViewHeight();
       const currentH = content.getBoundingClientRect().height || 0;
       // Only EXPAND, never shrink - iframe measurement can be wrong during load
@@ -797,7 +810,7 @@ window.__A108_CHECKOUT_HANDLER__ = function(cart) {
   container.style.position = 'relative';
   container.style.zIndex = '0';
   backBtn.style.position = 'relative';
-  backBtn.style.zIndex = '100';
+  backBtn.style.zIndex = '2147483647';
   backBtn.style.pointerEvents = 'auto';
 
   // Initial height animation - use fixed 650px; ResizeObserver can only expand, never shrink
@@ -822,6 +835,7 @@ window.__A108_CHECKOUT_HANDLER__ = function(cart) {
       if (!container || container.style.display === 'none') return;
       const iframe = getIframeEl();
       if (iframe) {
+        normalizeCheckoutIframeStyles();
         adjustToCheckoutHeight();
         return;
       }
@@ -851,26 +865,43 @@ window.__A108_CHECKOUT_HANDLER__ = function(cart) {
       checkoutSettleTimer = null;
     }
 
-    // Close Paddle
-    try {
-      window.Paddle.Checkout.close();
-    } catch (err) {
-      console.log('Paddle close error:', err);
-    }
-
     const fromH = content ? content.getBoundingClientRect().height : 0;
 
-    // HIDE checkout
+    const fadeOut = (el) => {
+      if (!el) return Promise.resolve();
+      try {
+        const a = el.animate([{ opacity: 1 }, { opacity: 0 }], { duration: FADE_MS, easing: 'cubic-bezier(.2,.8,.2,1)' });
+        return new Promise(r => { a.onfinish = r; });
+      } catch { return Promise.resolve(); }
+    };
+    const fadeIn = (el) => {
+      if (!el) return Promise.resolve();
+      try {
+        const a = el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: FADE_MS, easing: 'cubic-bezier(.2,.8,.2,1)' });
+        return new Promise(r => { a.onfinish = () => { el.style.opacity = ''; r(); }; });
+      } catch { el.style.opacity = ''; return Promise.resolve(); }
+    };
+
+    // Fade out checkout UI first (prevents a flash/jump)
+    await Promise.all([fadeOut(container), fadeOut(backBtn)]);
+
+    // Close Paddle
+    try { window.Paddle.Checkout.close(); } catch (err) { console.log('Paddle close error:', err); }
+
+    // Hide checkout
     container.style.display = 'none';
     backBtn.style.display = 'none';
+    container.style.opacity = '';
+    backBtn.style.opacity = '';
 
     // SHOW cart
     const cartData = JSON.parse(localStorage.getItem('webflow_cart') || '[]');
+    const toShow = [];
     if (cartData.length === 0) {
-      if (emptyEl) emptyEl.style.display = 'block';
+      if (emptyEl) { emptyEl.style.display = 'block'; emptyEl.style.opacity = '0'; toShow.push(emptyEl); }
     } else {
-      if (wrapper) wrapper.style.display = 'flex';
-      if (footer) footer.style.display = 'flex';
+      if (wrapper) { wrapper.style.display = 'flex'; wrapper.style.opacity = '0'; toShow.push(wrapper); }
+      if (footer) { footer.style.display = 'flex'; footer.style.opacity = '0'; toShow.push(footer); }
     }
 
     // Wait for layout & Paddle iframe to clear before measuring
@@ -895,6 +926,9 @@ window.__A108_CHECKOUT_HANDLER__ = function(cart) {
       content.style.height = '';
       content.style.overflow = '';
     }
+
+    // Fade in cart UI after height settles
+    await Promise.all(toShow.map(fadeIn));
   };
 
   // OPEN PADDLE - frameInitialHeight so iframe has proper initial size
