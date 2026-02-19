@@ -642,15 +642,14 @@
 
         if (isNowEmpty) {
           if (isMobile) {
+            // Mobile: simple fade-out (no dust/html2canvas)
             if (emptyEl) { emptyEl.style.opacity = '0'; }
-            try {
-              await Promise.all([fadeOutFooter(), dust(itemEl)]);
-            } catch (err) {
-              console.warn('Cart remove animation error:', err);
-            }
-            if (CFG.HOLD_AFTER_DUST) await new Promise(r => setTimeout(r, CFG.HOLD_AFTER_DUST));
-            // Cleanup ALWAYS runs regardless of animation success
-            try { itemEl.remove(); } catch {}
+            const itemFade = new Promise(res => {
+              const a = itemEl.animate([{opacity:1},{opacity:0}], {duration: 300, easing: 'cubic-bezier(.2,.8,.2,1)'});
+              a.onfinish = () => { itemEl.style.opacity = '0'; res(); };
+            });
+            await Promise.all([fadeOutFooter(), itemFade]);
+            itemEl.remove();
             wrapper.style.display = 'none';
             if (footerEl) footerEl.style.display = 'none';
             updateBadge();
@@ -675,12 +674,20 @@
             pinContentHeight(CFG.EMPTY_PIN_H_PX);
           }
         } else {
-          try {
-            await dust(itemEl);
-          } catch (err) {
-            console.warn('Cart remove animation error:', err);
+          if (isMobile) {
+            // Mobile: fade-out + collapse (no dust/html2canvas)
+            await new Promise(res => {
+              const a = itemEl.animate([{opacity:1},{opacity:0}], {duration: 300, easing: 'cubic-bezier(.2,.8,.2,1)'});
+              a.onfinish = () => { itemEl.style.opacity = '0'; res(); };
+            });
+          } else {
+            try {
+              await dust(itemEl);
+            } catch (err) {
+              console.warn('Cart remove animation error:', err);
+            }
+            if (CFG.HOLD_AFTER_DUST) await new Promise(r => setTimeout(r, CFG.HOLD_AFTER_DUST));
           }
-          if (CFG.HOLD_AFTER_DUST) await new Promise(r => setTimeout(r, CFG.HOLD_AFTER_DUST));
           await collapseWithFLIP(itemEl);
           $$(CFG.ITEM, wrapper).forEach((el, i) => {
             const b = el.querySelector('.remove-button');
