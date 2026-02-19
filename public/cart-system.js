@@ -1,5 +1,3 @@
-<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
-<script>
 (() => {
   if (window.__A108_CART_V10__) return;
   window.__A108_CART_V10__ = true;
@@ -827,4 +825,3 @@ window.__A108_CHECKOUT_HANDLER__ = function(cart) {
   
   console.log('✅ Paddle opened');
 };
-</script>
