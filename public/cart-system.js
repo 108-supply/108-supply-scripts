@@ -718,9 +718,10 @@ window.__A108_CHECKOUT_HANDLER__ = function(cart) {
     return;
   }
 
-  const CHECKOUT_MIN_H = 600;
+  const CHECKOUT_MIN_H = 450;
   const CONTENT_MS = 520;
   const CONTENT_EASE = 'cubic-bezier(.2,.8,.2,1)';
+  let checkoutResizeObserver = null;
 
   // Helper: same pattern as animateContentHeight() from removeFlow
   async function animateContentHeight(fromPx, toPx) {
@@ -740,6 +741,13 @@ window.__A108_CHECKOUT_HANDLER__ = function(cart) {
     content.style.height = to + 'px';
   }
 
+  function getCheckoutViewHeight() {
+    if (!backBtn || !container) return CHECKOUT_MIN_H;
+    const backH = backBtn.offsetHeight || 0;
+    const containerH = container.offsetHeight || 0;
+    return Math.max(CHECKOUT_MIN_H, backH + containerH);
+  }
+
   // STORE current height for animation
   const startH = content ? content.getBoundingClientRect().height : 0;
 
@@ -750,23 +758,51 @@ window.__A108_CHECKOUT_HANDLER__ = function(cart) {
 
   container.style.display = 'block';
   backBtn.style.display = 'block';
-  backBtn.style.position = 'relative';
-  backBtn.style.zIndex = '10';
 
-  // Run height animation - Paddle iframe loads async, use min 600px; keep overflow auto for scroll
+  // Ensure back button is ABOVE checkout iframe: first in DOM + higher z-index
+  if (content && backBtn.parentNode === content && container.parentNode === content) {
+    content.insertBefore(backBtn, container);
+  }
+  container.style.position = 'relative';
+  container.style.zIndex = '0';
+  backBtn.style.position = 'relative';
+  backBtn.style.zIndex = '100';
+  backBtn.style.pointerEvents = 'auto';
+
+  // Initial height animation - then ResizeObserver adapts when Paddle iframe loads
   const runHeightAnimation = async () => {
     if (!content || startH <= 0) return;
-    const endH = Math.max(CHECKOUT_MIN_H, content.scrollHeight);
-    await animateContentHeight(startH, endH);
+    const initialH = getCheckoutViewHeight();
+    await animateContentHeight(startH, initialH);
     content.style.overflow = 'auto';
-    // Keep height pinned so we don't collapse if iframe loads late
+
+    // ResizeObserver: adapt to actual Paddle iframe height when it loads
+    const checkoutRo = new ResizeObserver(() => {
+      if (!content || container.style.display === 'none') return;
+      const targetH = getCheckoutViewHeight();
+      const currentH = parseFloat(content.style.height) || content.offsetHeight;
+      if (Math.abs(targetH - currentH) > 2) {
+        content.style.transition = `height ${CONTENT_MS}ms ${CONTENT_EASE}`;
+        content.style.height = targetH + 'px';
+        setTimeout(() => {
+          content.style.transition = '';
+        }, CONTENT_MS);
+      }
+    });
+    checkoutResizeObserver = checkoutRo;
+    checkoutResizeObserver.observe(container);
   };
   runHeightAnimation();
-  
-  // BACK BUTTON - simple onclick
+
+  // BACK BUTTON
   backBtn.onclick = async function(e) {
     e.preventDefault();
     console.log('Back button clicked');
+
+    if (checkoutResizeObserver) {
+      checkoutResizeObserver.disconnect();
+      checkoutResizeObserver = null;
+    }
 
     // Close Paddle
     try {
@@ -775,7 +811,7 @@ window.__A108_CHECKOUT_HANDLER__ = function(cart) {
       console.log('Paddle close error:', err);
     }
 
-    const startH = content ? content.getBoundingClientRect().height : 0;
+    const fromH = content ? content.getBoundingClientRect().height : 0;
 
     // HIDE checkout
     container.style.display = 'none';
@@ -790,37 +826,44 @@ window.__A108_CHECKOUT_HANDLER__ = function(cart) {
       if (footer) footer.style.display = 'flex';
     }
 
-    // ANIMATE height back - same Web Animations API pattern
-    if (content && startH > 0) {
-      void content.offsetHeight;
-      const endH = content.scrollHeight;
-      content.style.height = startH + 'px';
+    // Wait for layout & Paddle iframe to clear before measuring
+    await new Promise(r => requestAnimationFrame(r));
+    await new Promise(r => requestAnimationFrame(r));
+
+    // Animate back to cart height, then fully reset
+    if (content && fromH > 0) {
+      const toH = content.scrollHeight;
+      content.style.height = fromH + 'px';
       content.style.overflow = 'hidden';
+      void content.offsetHeight;
       await new Promise(res => {
         const a = content.animate(
-          [{ height: startH + 'px' }, { height: endH + 'px' }],
+          [{ height: fromH + 'px' }, { height: toH + 'px' }],
           { duration: CONTENT_MS, easing: CONTENT_EASE }
         );
         a.onfinish = () => res();
       });
+    }
+    if (content) {
       content.style.height = '';
       content.style.overflow = '';
     }
   };
-  
-  // OPEN PADDLE - SUPER SIMPLE
+
+  // OPEN PADDLE - frameInitialHeight so iframe has proper initial size
   const isDarkMode = !document.body.classList.contains('is-base');
-  
+
   Paddle.Checkout.open({
     items: items,
     settings: {
       displayMode: 'inline',
       frameTarget: 'checkout-container',
+      frameInitialHeight: '550',
       variant: 'one-page',
       theme: isDarkMode ? 'dark' : 'light',
       locale: 'en'
     }
   });
-  
+
   console.log('✅ Paddle opened');
 };
