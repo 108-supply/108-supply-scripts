@@ -722,6 +722,9 @@ window.__A108_CHECKOUT_HANDLER__ = function(cart) {
   const CONTENT_MS = 520;
   const CONTENT_EASE = 'cubic-bezier(.2,.8,.2,1)';
   let checkoutResizeObserver = null;
+  let checkoutPollTimer = null;
+  let checkoutSettleTimer = null;
+  let isAdjusting = false;
 
   // Helper: same pattern as animateContentHeight() from removeFlow
   async function animateContentHeight(fromPx, toPx) {
@@ -741,11 +744,42 @@ window.__A108_CHECKOUT_HANDLER__ = function(cart) {
     content.style.height = to + 'px';
   }
 
+  function getIframeEl() {
+    try { return container.querySelector('iframe'); } catch { return null; }
+  }
+
   function getCheckoutViewHeight() {
     if (!backBtn || !container) return CHECKOUT_MIN_H;
-    const backH = backBtn.offsetHeight || 0;
-    const containerH = container.offsetHeight || 0;
-    return Math.max(CHECKOUT_MIN_H, backH + containerH);
+    const backH = Math.ceil(backBtn.getBoundingClientRect().height || 0);
+    const iframe = getIframeEl();
+    const iframeH = iframe ? Math.ceil(iframe.getBoundingClientRect().height || 0) : 0;
+    const containerH = Math.ceil(container.getBoundingClientRect().height || 0);
+    const innerH = Math.max(iframeH, containerH, CHECKOUT_MIN_H);
+    return Math.max(CHECKOUT_MIN_H, backH + innerH);
+  }
+
+  async function adjustToCheckoutHeight() {
+    if (!content || !backBtn || !container) return;
+    if (container.style.display === 'none') return;
+    if (isAdjusting) return;
+    isAdjusting = true;
+    try {
+      const targetH = getCheckoutViewHeight();
+      const currentH = content.getBoundingClientRect().height || 0;
+      if (targetH > 0 && Math.abs(targetH - currentH) > 2) {
+        await animateContentHeight(currentH, targetH);
+      }
+      content.style.overflow = 'auto';
+
+      // When iframe stops resizing, unpin content height so it can be natural.
+      if (checkoutSettleTimer) clearTimeout(checkoutSettleTimer);
+      checkoutSettleTimer = setTimeout(() => {
+        if (!content || container.style.display === 'none') return;
+        content.style.height = '';
+      }, 350);
+    } finally {
+      isAdjusting = false;
+    }
   }
 
   // STORE current height for animation
@@ -763,34 +797,50 @@ window.__A108_CHECKOUT_HANDLER__ = function(cart) {
   if (content && backBtn.parentNode === content && container.parentNode === content) {
     content.insertBefore(backBtn, container);
   }
+  // Ensure z-index works reliably vs iframe
+  if (content) {
+    if (!content.style.position) content.style.position = 'relative';
+    content.style.isolation = 'isolate';
+  }
   container.style.position = 'relative';
   container.style.zIndex = '0';
-  backBtn.style.position = 'relative';
-  backBtn.style.zIndex = '100';
+  // Sticky header so iframe never blocks clicks
+  backBtn.style.position = 'sticky';
+  backBtn.style.top = '0px';
+  backBtn.style.zIndex = '2147483647';
   backBtn.style.pointerEvents = 'auto';
 
   // Initial height animation - then ResizeObserver adapts when Paddle iframe loads
   const runHeightAnimation = async () => {
     if (!content || startH <= 0) return;
-    const initialH = getCheckoutViewHeight();
-    await animateContentHeight(startH, initialH);
+    // First animate to a safe minimum (iframe may not exist yet)
+    const safeMin = Math.max(CHECKOUT_MIN_H, Math.ceil(backBtn.getBoundingClientRect().height || 0) + CHECKOUT_MIN_H);
+    await animateContentHeight(startH, safeMin);
     content.style.overflow = 'auto';
 
-    // ResizeObserver: adapt to actual Paddle iframe height when it loads
-    const checkoutRo = new ResizeObserver(() => {
-      if (!content || container.style.display === 'none') return;
-      const targetH = getCheckoutViewHeight();
-      const currentH = parseFloat(content.style.height) || content.offsetHeight;
-      if (Math.abs(targetH - currentH) > 2) {
-        content.style.transition = `height ${CONTENT_MS}ms ${CONTENT_EASE}`;
-        content.style.height = targetH + 'px';
-        setTimeout(() => {
-          content.style.transition = '';
-        }, CONTENT_MS);
-      }
+    // ResizeObserver: respond to container/iframe size changes
+    checkoutResizeObserver = new ResizeObserver(() => {
+      if (checkoutSettleTimer) clearTimeout(checkoutSettleTimer);
+      checkoutSettleTimer = setTimeout(() => {
+        adjustToCheckoutHeight();
+      }, 30);
     });
-    checkoutResizeObserver = checkoutRo;
     checkoutResizeObserver.observe(container);
+
+    // Poll until iframe appears (Paddle injects async), then do precise adjust
+    const startedAt = Date.now();
+    const poll = () => {
+      if (!container || container.style.display === 'none') return;
+      const iframe = getIframeEl();
+      if (iframe) {
+        adjustToCheckoutHeight();
+        return;
+      }
+      if (Date.now() - startedAt < 4000) {
+        checkoutPollTimer = setTimeout(poll, 80);
+      }
+    };
+    poll();
   };
   runHeightAnimation();
 
@@ -802,6 +852,14 @@ window.__A108_CHECKOUT_HANDLER__ = function(cart) {
     if (checkoutResizeObserver) {
       checkoutResizeObserver.disconnect();
       checkoutResizeObserver = null;
+    }
+    if (checkoutPollTimer) {
+      clearTimeout(checkoutPollTimer);
+      checkoutPollTimer = null;
+    }
+    if (checkoutSettleTimer) {
+      clearTimeout(checkoutSettleTimer);
+      checkoutSettleTimer = null;
     }
 
     // Close Paddle
