@@ -718,7 +718,7 @@ window.__A108_CHECKOUT_HANDLER__ = function(cart) {
     return;
   }
 
-  const CHECKOUT_MIN_H = 450;
+  const CHECKOUT_MIN_H = 650;
   const CONTENT_MS = 520;
   const CONTENT_EASE = 'cubic-bezier(.2,.8,.2,1)';
   let checkoutResizeObserver = null;
@@ -764,19 +764,15 @@ window.__A108_CHECKOUT_HANDLER__ = function(cart) {
     if (isAdjusting) return;
     isAdjusting = true;
     try {
-      const targetH = getCheckoutViewHeight();
+      const measuredH = getCheckoutViewHeight();
       const currentH = content.getBoundingClientRect().height || 0;
-      if (targetH > 0 && Math.abs(targetH - currentH) > 2) {
+      // Only EXPAND, never shrink - iframe measurement can be wrong during load
+      const targetH = Math.max(measuredH, currentH, 600);
+      if (targetH > 0 && targetH > currentH && Math.abs(targetH - currentH) > 2) {
         await animateContentHeight(currentH, targetH);
       }
       content.style.overflow = 'auto';
-
-      // When iframe stops resizing, unpin content height so it can be natural.
-      if (checkoutSettleTimer) clearTimeout(checkoutSettleTimer);
-      checkoutSettleTimer = setTimeout(() => {
-        if (!content || container.style.display === 'none') return;
-        content.style.height = '';
-      }, 350);
+      // Do NOT unpin height - keep it so checkout stays visible
     } finally {
       isAdjusting = false;
     }
@@ -797,24 +793,17 @@ window.__A108_CHECKOUT_HANDLER__ = function(cart) {
   if (content && backBtn.parentNode === content && container.parentNode === content) {
     content.insertBefore(backBtn, container);
   }
-  // Ensure z-index works reliably vs iframe
-  if (content) {
-    if (!content.style.position) content.style.position = 'relative';
-    content.style.isolation = 'isolate';
-  }
+  // Back button must stay clickable above Paddle iframe - do NOT touch content position (breaks Webflow layout)
   container.style.position = 'relative';
   container.style.zIndex = '0';
-  // Sticky header so iframe never blocks clicks
-  backBtn.style.position = 'sticky';
-  backBtn.style.top = '0px';
-  backBtn.style.zIndex = '2147483647';
+  backBtn.style.position = 'relative';
+  backBtn.style.zIndex = '100';
   backBtn.style.pointerEvents = 'auto';
 
-  // Initial height animation - then ResizeObserver adapts when Paddle iframe loads
+  // Initial height animation - use fixed 650px; ResizeObserver can only expand, never shrink
   const runHeightAnimation = async () => {
     if (!content || startH <= 0) return;
-    // First animate to a safe minimum (iframe may not exist yet)
-    const safeMin = Math.max(CHECKOUT_MIN_H, Math.ceil(backBtn.getBoundingClientRect().height || 0) + CHECKOUT_MIN_H);
+    const safeMin = Math.max(CHECKOUT_MIN_H, Math.ceil(backBtn.getBoundingClientRect().height || 0) + 550);
     await animateContentHeight(startH, safeMin);
     content.style.overflow = 'auto';
 
@@ -916,7 +905,7 @@ window.__A108_CHECKOUT_HANDLER__ = function(cart) {
     settings: {
       displayMode: 'inline',
       frameTarget: 'checkout-container',
-      frameInitialHeight: '550',
+      frameInitialHeight: '600',
       variant: 'one-page',
       theme: isDarkMode ? 'dark' : 'light',
       locale: 'en'
