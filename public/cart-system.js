@@ -268,19 +268,22 @@
       }
       
       setButtonUI(false, true);
-      clearAnimations(overlay);
-      clearAnimations(content);
 
-      if (overlay) {
-        const a = overlay.animate([{opacity:1},{opacity:0}], {
-          duration: CFG.CLOSE_MS, easing: 'cubic-bezier(.2,.8,.2,1)'
-        });
-        a.onfinish = () => { overlay.style.opacity = '0'; overlay.style.display = 'none'; };
-      }
+      if (isMobile) {
+        // Mobile: cancel only overlay animations; do NOT touch content styles before fade
+        clearAnimations(overlay);
+        try { content.getAnimations().forEach(a => a.cancel()); } catch {}
 
-      if (content) {
-        if (isMobile) {
-          // Mobile: simple fade-out (no translateX slide — drawer is full-screen)
+        if (overlay) {
+          const a = overlay.animate([{opacity:1},{opacity:0}], {
+            duration: CFG.CLOSE_MS, easing: 'cubic-bezier(.2,.8,.2,1)'
+          });
+          a.onfinish = () => { overlay.style.opacity = '0'; overlay.style.display = 'none'; };
+        }
+
+        if (content) {
+          // Ensure content is visible before starting the fade-out
+          content.style.opacity = '1';
           await new Promise(res => {
             const a = content.animate(
               [{opacity:1},{opacity:0}],
@@ -291,8 +294,29 @@
               res();
             };
           });
-        } else {
-          // Desktop: slide right + fade out
+          // Reset mobile fullscreen overrides after animation completes
+          content.style.height = '';
+          content.style.overflow = '';
+          content.style.webkitOverflowScrolling = '';
+          content.style.touchAction = '';
+          content.style.transform = '';
+        }
+
+        if (drawer) drawer.style.display = 'none';
+        unlockPageScroll();
+      } else {
+        // Desktop: standard slide-right + fade
+        clearAnimations(overlay);
+        clearAnimations(content);
+
+        if (overlay) {
+          const a = overlay.animate([{opacity:1},{opacity:0}], {
+            duration: CFG.CLOSE_MS, easing: 'cubic-bezier(.2,.8,.2,1)'
+          });
+          a.onfinish = () => { overlay.style.opacity = '0'; overlay.style.display = 'none'; };
+        }
+
+        if (content) {
           await new Promise(res => {
             const a = content.animate(
               [{transform:'translateX(0px)', opacity:1},{transform:`translateX(${CFG.PANEL_X_PX}px)`, opacity:0}],
@@ -305,19 +329,9 @@
             };
           });
         }
-      }
 
-      // Reset mobile fullscreen overrides before hiding
-      if (isMobile && content) {
-        content.style.height = '';
-        content.style.overflow = '';
-        content.style.webkitOverflowScrolling = '';
-        content.style.touchAction = '';
-        content.style.transform = '';
+        if (drawer) drawer.style.display = 'none';
       }
-
-      if (drawer) drawer.style.display = 'none';
-      unlockPageScroll();
     }
 
     function setEmptyState(isEmpty) {
@@ -387,6 +401,10 @@
 
     async function maybeAnimateFromPinnedToAuto() {
       if (!content || !isHeightPinnedEmpty || !isOpen) return;
+      if (isMobile) {
+        isHeightPinnedEmpty = false;
+        return;
+      }
       const from = CFG.EMPTY_PIN_H_PX;
       const target = Math.max(content.scrollHeight, CFG.EMPTY_PIN_H_PX);
       if (Math.abs(target - from) < 2) {
@@ -411,11 +429,9 @@
           updateBadge();
           setEmptyState(true);
           if (content) {
-            // Desktop: keep the pinned empty height animation behavior.
-            // Mobile: keep full-screen drawer (Webflow) and do NOT pin to 200px.
             if (isMobile) {
+              // Mobile: preserve fullscreen drawer — do NOT clear height/overflow
               isHeightPinnedEmpty = false;
-              unpinContentHeight();
             } else {
               isHeightPinnedEmpty = true;
               pinContentHeight(CFG.EMPTY_PIN_H_PX);
