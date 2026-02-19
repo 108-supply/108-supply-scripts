@@ -71,6 +71,7 @@
     let isRemoving = false;
     let renderLock = false;
     let isHeightPinnedEmpty = false;
+    let justFinishedRemoving = false;
 
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
     const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
@@ -381,7 +382,13 @@
     async function fadeInEmpty() {
       if (!emptyEl) return;
       clearAnimations(emptyEl);
-      emptyEl.style.display = 'block';
+      // Use flex centering from the start (same as setEmptyState) to avoid block→flex jump
+      emptyEl.style.display = 'flex';
+      emptyEl.style.flexDirection = 'column';
+      emptyEl.style.alignItems = 'center';
+      emptyEl.style.justifyContent = 'center';
+      emptyEl.style.textAlign = 'center';
+      emptyEl.style.minHeight = '100%';
       emptyEl.style.opacity = '0';
       await new Promise(res => {
         const a = emptyEl.animate([{opacity:0},{opacity:1}], {
@@ -628,7 +635,7 @@
         if (isNowEmpty) {
           if (isMobile) {
             // Mobile: dust + fade to empty, but skip height pinning/animation (stays full-screen)
-            if (emptyEl) { emptyEl.style.display = 'block'; emptyEl.style.opacity = '0'; }
+            if (emptyEl) { emptyEl.style.opacity = '0'; }
             const dustP = dust(itemEl);
             const footerP = fadeOutFooter();
             await Promise.all([footerP, dustP]);
@@ -668,7 +675,9 @@
         }
       } finally {
         isRemoving = false;
+        justFinishedRemoving = true;
         window.dispatchEvent(new Event('cartUpdated'));
+        justFinishedRemoving = false;
       }
     }
 
@@ -716,6 +725,7 @@
     window.addEventListener('cartUpdated', () => {
       updateBadge();
       updateTotal();
+      if (justFinishedRemoving) return;
       if (!isOpen) showDrawer();
       else if (!isRemoving) renderCart();
     });
