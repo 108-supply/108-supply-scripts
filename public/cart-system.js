@@ -75,6 +75,30 @@
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
     const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
     const isIOSSafari = isIOS && isSafari;
+    const isMobile = window.matchMedia && window.matchMedia('(max-width: 991px)').matches;
+    let lockedScrollY = 0;
+
+    function lockPageScroll() {
+      if (!isMobile) return;
+      lockedScrollY = window.scrollY || window.pageYOffset || 0;
+      document.documentElement.style.overflow = 'hidden';
+      document.body.style.position = 'fixed';
+      document.body.style.top = `-${lockedScrollY}px`;
+      document.body.style.left = '0';
+      document.body.style.right = '0';
+      document.body.style.width = '100%';
+    }
+
+    function unlockPageScroll() {
+      if (!isMobile) return;
+      document.documentElement.style.overflow = '';
+      document.body.style.position = '';
+      document.body.style.top = '';
+      document.body.style.left = '';
+      document.body.style.right = '';
+      document.body.style.width = '';
+      window.scrollTo(0, lockedScrollY);
+    }
 
     const getCart = () => {
       try { return JSON.parse(localStorage.getItem(CFG.LS_KEY) || '[]'); }
@@ -171,6 +195,7 @@
       if (isOpen) return;
       isOpen = true;
       
+      lockPageScroll();
       if (drawer) drawer.style.display = 'block';
       clearAnimations(overlay);
       clearAnimations(content);
@@ -183,9 +208,25 @@
       // RESET TO CART VIEW
       const container = $('#checkout-container');
       const backBtn = $('#checkout-back-btn');
+      const headerEl = document.getElementById('cart-header');
       
       if (container) container.style.display = 'none';
       if (backBtn) backBtn.style.display = 'none';
+      if (headerEl) headerEl.textContent = 'Cart';
+
+      // Mobile: full-screen drawer, internal scrolling only
+      if (isMobile && content) {
+        content.style.height = '100vh';
+        try {
+          if (window.CSS && CSS.supports && CSS.supports('height: 100dvh')) {
+            content.style.height = '100dvh';
+          }
+        } catch {}
+        content.style.overflow = 'auto';
+        content.style.webkitOverflowScrolling = 'touch';
+        content.style.touchAction = 'pan-y';
+        if (overlay) overlay.style.touchAction = 'none';
+      }
       
       await renderCart();
       
@@ -252,6 +293,14 @@
       }
       
       if (drawer) drawer.style.display = 'none';
+
+      // Reset mobile fullscreen overrides + unlock scroll
+      if (isMobile && content) {
+        content.style.height = '';
+        content.style.overflow = '';
+        content.style.webkitOverflowScrolling = '';
+      }
+      unlockPageScroll();
     }
 
     function setEmptyState(isEmpty) {
@@ -722,11 +771,15 @@ window.__A108_CHECKOUT_HANDLER__ = function(cart) {
   const emptyEl = document.getElementById('cart-empty');
   const container = document.getElementById('checkout-container');
   const backBtn = document.getElementById('checkout-back-btn');
+  const headerEl = document.getElementById('cart-header');
+  const isMobile = window.matchMedia && window.matchMedia('(max-width: 991px)').matches;
 
   if (!container || !backBtn) {
     alert('Missing elements!');
     return;
   }
+
+  if (headerEl) headerEl.textContent = 'Checkout';
 
   const CHECKOUT_MIN_H = 450; // Paddle recommended minimum initial inline height
   const CHECKOUT_SAFE_PAD_PX = 48; // compliance bar (~38px) + buffer
@@ -823,9 +876,26 @@ window.__A108_CHECKOUT_HANDLER__ = function(cart) {
 
   container.style.display = 'block';
   backBtn.style.display = 'block';
-  // Start hidden; we'll fade in once Paddle sets real iframe height
-  container.style.opacity = '0';
-  backBtn.style.opacity = '0';
+  // Mobile: cart is full-screen; skip height calculations/animations entirely
+  if (isMobile) {
+    container.style.opacity = '';
+    backBtn.style.opacity = '';
+    container.style.overflow = 'auto';
+    container.style.webkitOverflowScrolling = 'touch';
+    if (content) {
+      content.style.height = '100vh';
+      try {
+        if (window.CSS && CSS.supports && CSS.supports('height: 100dvh')) content.style.height = '100dvh';
+      } catch {}
+      content.style.overflow = 'auto';
+      content.style.webkitOverflowScrolling = 'touch';
+      content.style.touchAction = 'pan-y';
+    }
+  } else {
+    // Desktop/tablet: Start hidden; we'll fade in once Paddle sets real iframe height
+    container.style.opacity = '0';
+    backBtn.style.opacity = '0';
+  }
 
   // Ensure back button is ABOVE checkout iframe: first in DOM + higher z-index
   if (content && backBtn.parentNode === content && container.parentNode === content) {
@@ -899,7 +969,7 @@ window.__A108_CHECKOUT_HANDLER__ = function(cart) {
     };
     poll();
   };
-  runHeightAnimation();
+  if (!isMobile) runHeightAnimation();
 
   // BACK BUTTON
   backBtn.onclick = async function(e) {
@@ -923,6 +993,7 @@ window.__A108_CHECKOUT_HANDLER__ = function(cart) {
       iframeStableTimer = null;
     }
 
+    if (headerEl) headerEl.textContent = 'Cart';
     const fromH = content ? content.getBoundingClientRect().height : 0;
 
     const fadeOut = (el) => {
@@ -941,7 +1012,9 @@ window.__A108_CHECKOUT_HANDLER__ = function(cart) {
     };
 
     // Fade out checkout UI first (prevents a flash/jump)
-    await Promise.all([fadeOut(container), fadeOut(backBtn)]);
+    if (!isMobile) {
+      await Promise.all([fadeOut(container), fadeOut(backBtn)]);
+    }
 
     // Close Paddle
     try { window.Paddle.Checkout.close(); } catch (err) { console.log('Paddle close error:', err); }
@@ -986,7 +1059,20 @@ window.__A108_CHECKOUT_HANDLER__ = function(cart) {
     }
 
     // Fade in cart UI after height settles
-    await Promise.all(toShow.map(fadeIn));
+    if (!isMobile) {
+      await Promise.all(toShow.map(fadeIn));
+    } else {
+      // Mobile: ensure content keeps full-screen scroll behavior
+      if (content) {
+        content.style.height = '100vh';
+        try {
+          if (window.CSS && CSS.supports && CSS.supports('height: 100dvh')) content.style.height = '100dvh';
+        } catch {}
+        content.style.overflow = 'auto';
+        content.style.webkitOverflowScrolling = 'touch';
+      }
+      toShow.forEach(el => { if (el) { el.style.opacity = ''; } });
+    }
   };
 
   // OPEN PADDLE - frameInitialHeight so iframe has proper initial size
