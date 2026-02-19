@@ -308,7 +308,15 @@
       clearAnimations(emptyEl);
       if (isEmpty) {
         if (footerEl) footerEl.style.display = 'none';
-        if (emptyEl) emptyEl.style.display = 'block';
+        if (emptyEl) {
+          // Center vertically when visible
+          emptyEl.style.display = 'flex';
+          emptyEl.style.flexDirection = 'column';
+          emptyEl.style.alignItems = 'center';
+          emptyEl.style.justifyContent = 'center';
+          emptyEl.style.textAlign = 'center';
+          emptyEl.style.minHeight = '100%';
+        }
         if (checkoutBtn) checkoutBtn.disabled = true;
       } else {
         if (emptyEl) emptyEl.style.display = 'none';
@@ -386,8 +394,15 @@
           updateBadge();
           setEmptyState(true);
           if (content) {
-            isHeightPinnedEmpty = true;
-            pinContentHeight(CFG.EMPTY_PIN_H_PX);
+            // Desktop: keep the pinned empty height animation behavior.
+            // Mobile: keep full-screen drawer (Webflow) and do NOT pin to 200px.
+            if (isMobile) {
+              isHeightPinnedEmpty = false;
+              unpinContentHeight();
+            } else {
+              isHeightPinnedEmpty = true;
+              pinContentHeight(CFG.EMPTY_PIN_H_PX);
+            }
           }
           return;
         }
@@ -738,8 +753,13 @@
     updateTotal();
     setEmptyState(getCart().length === 0);
     if (getCart().length === 0 && content) {
-      isHeightPinnedEmpty = true;
-      pinContentHeight(CFG.EMPTY_PIN_H_PX);
+      if (!isMobile) {
+        isHeightPinnedEmpty = true;
+        pinContentHeight(CFG.EMPTY_PIN_H_PX);
+      } else {
+        isHeightPinnedEmpty = false;
+        unpinContentHeight();
+      }
     }
     if (drawer) drawer.style.display = 'none';
     if (overlay) { overlay.style.display = 'none'; overlay.style.opacity = '0'; }
