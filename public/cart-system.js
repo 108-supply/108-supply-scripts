@@ -591,6 +591,24 @@
         setCart(cart);
         updateTotal();
         const isNowEmpty = cart.length === 0;
+
+        // MOBILE: skip heavy dust/FLIP animations; just keep cart state correct & full-screen UX
+        if (isMobile) {
+          if (itemEl && itemEl.remove) itemEl.remove();
+          if (isNowEmpty) {
+            wrapper.style.display = 'none';
+            if (footerEl) footerEl.style.display = 'none';
+            setEmptyState(true);
+          } else {
+            wrapper.style.display = 'flex';
+            setEmptyState(false);
+          }
+          updateBadge();
+          await renderCart();
+          window.dispatchEvent(new Event('cartUpdated'));
+          return;
+        }
+
         if (isNowEmpty) {
           const startH = content ? content.getBoundingClientRect().height : CFG.EMPTY_PIN_H_PX;
           if (emptyEl) { emptyEl.style.display = 'block'; emptyEl.style.opacity = '0'; }
