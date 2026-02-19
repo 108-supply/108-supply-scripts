@@ -753,10 +753,23 @@ window.__A108_CHECKOUT_HANDLER__ = function(cart) {
   function normalizeCheckoutIframeStyles() {
     const iframe = getIframeEl();
     if (!iframe) return;
-    // Paddle may inject very high z-index / fixed positioning; keep iframe below Back button.
+    // Paddle may inject very high z-index / fixed positioning.
+    // We want the iframe to stay in normal flow (so container height works)
+    // and to have a sensible explicit height (so it can't collapse to ~150px).
+    const rectH = Math.ceil(iframe.getBoundingClientRect().height || 0);
+    const styleH = Math.ceil(parseFloat(iframe.style.height || '0') || 0);
+    const desiredH = Math.max(600, rectH, styleH);
+
     try { iframe.style.zIndex = '0'; } catch {}
     try { iframe.style.position = 'relative'; } catch {}
     try { iframe.style.top = '0px'; iframe.style.left = '0px'; } catch {}
+    try { iframe.style.display = 'block'; } catch {}
+    try { iframe.style.width = '100%'; } catch {}
+    try { iframe.style.minHeight = desiredH + 'px'; } catch {}
+    try { iframe.style.height = desiredH + 'px'; } catch {}
+
+    // Keep wrapper tall as well, so layout/scrollHeight reflects checkout size
+    try { container.style.minHeight = desiredH + 'px'; } catch {}
   }
 
   function getCheckoutViewHeight() {
@@ -940,6 +953,7 @@ window.__A108_CHECKOUT_HANDLER__ = function(cart) {
       displayMode: 'inline',
       frameTarget: 'checkout-container',
       frameInitialHeight: '600',
+      frameStyle: 'width: 100%; min-width: 312px; background-color: transparent; border: none;',
       variant: 'one-page',
       theme: isDarkMode ? 'dark' : 'light',
       locale: 'en'
