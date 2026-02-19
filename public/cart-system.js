@@ -642,17 +642,24 @@
 
         if (isNowEmpty) {
           if (isMobile) {
-            // Mobile: simple fade-out (no dust/html2canvas)
-            if (emptyEl) { emptyEl.style.opacity = '0'; }
-            const itemFade = new Promise(res => {
-              const a = itemEl.animate([{opacity:1},{opacity:0}], {duration: 300, easing: 'cubic-bezier(.2,.8,.2,1)'});
-              a.onfinish = () => { itemEl.style.opacity = '0'; res(); };
+            // Mobile: fade-out ALL cart content together, then fade-in empty
+            const FADE_DUR = 280;
+            const EASE = 'cubic-bezier(.2,.8,.2,1)';
+
+            const makeFade = (el) => new Promise(res => {
+              if (!el || el.style.display === 'none') { res(); return; }
+              const a = el.animate([{opacity:1},{opacity:0}], {duration: FADE_DUR, easing: EASE});
+              a.onfinish = () => { el.style.opacity = '0'; res(); };
             });
-            await Promise.all([fadeOutFooter(), itemFade]);
+
+            await Promise.all([makeFade(wrapper), makeFade(footerEl)]);
+
             itemEl.remove();
-            wrapper.style.display = 'none';
-            if (footerEl) footerEl.style.display = 'none';
+            if (wrapper) { wrapper.style.display = 'none'; wrapper.style.opacity = ''; }
+            if (footerEl) { footerEl.style.display = 'none'; footerEl.style.opacity = ''; }
             updateBadge();
+
+            await new Promise(r => setTimeout(r, 80));
             await fadeInEmpty();
           } else {
             const startH = content ? content.getBoundingClientRect().height : CFG.EMPTY_PIN_H_PX;
@@ -675,9 +682,12 @@
           }
         } else {
           if (isMobile) {
-            // Mobile: fade-out + collapse (no dust/html2canvas)
+            // Mobile: fade-out item, then FLIP-collapse remaining items
             await new Promise(res => {
-              const a = itemEl.animate([{opacity:1},{opacity:0}], {duration: 300, easing: 'cubic-bezier(.2,.8,.2,1)'});
+              const a = itemEl.animate(
+                [{opacity:1, transform:'scale(1)'}, {opacity:0, transform:'scale(0.95)'}],
+                {duration: 280, easing: 'cubic-bezier(.2,.8,.2,1)'}
+              );
               a.onfinish = () => { itemEl.style.opacity = '0'; res(); };
             });
           } else {
@@ -852,7 +862,7 @@
 // ===================================
 // CHECKOUT HANDLER
 // ===================================
-window.__A108_CHECKOUT_HANDLER__ = function(cart) {
+window.__A108_CHECKOUT_HANDLER__ = async function(cart) {
   console.log('🛒 Opening Checkout');
 
   if (!window.Paddle) {
@@ -970,17 +980,27 @@ window.__A108_CHECKOUT_HANDLER__ = function(cart) {
   // STORE current height for animation
   const startH = content ? content.getBoundingClientRect().height : 0;
 
-  // HIDE cart, SHOW checkout
-  if (wrapper) wrapper.style.display = 'none';
-  if (footer) footer.style.display = 'none';
+  // HIDE cart with fade on mobile, then SHOW checkout
+  if (isMobile) {
+    // Fade out cart content first
+    const cartFadeEls = [wrapper, footer].filter(Boolean).filter(el => el.style.display !== 'none');
+    await Promise.all(cartFadeEls.map(el => new Promise(res => {
+      const a = el.animate([{opacity:1},{opacity:0}], {duration: FADE_MS, easing: 'cubic-bezier(.2,.8,.2,1)'});
+      a.onfinish = () => { el.style.opacity = '0'; res(); };
+    })));
+  }
+
+  if (wrapper) { wrapper.style.display = 'none'; wrapper.style.opacity = ''; }
+  if (footer) { footer.style.display = 'none'; footer.style.opacity = ''; }
   if (emptyEl) emptyEl.style.display = 'none';
 
   container.style.display = 'block';
   backBtn.style.display = 'block';
-  // Mobile: cart is full-screen; skip height calculations/animations entirely
+
   if (isMobile) {
-    container.style.opacity = '';
-    backBtn.style.opacity = '';
+    // Start hidden for fade-in
+    container.style.opacity = '0';
+    backBtn.style.opacity = '0';
     container.style.overflow = 'auto';
     container.style.webkitOverflowScrolling = 'touch';
     if (content) {
@@ -993,7 +1013,6 @@ window.__A108_CHECKOUT_HANDLER__ = function(cart) {
       content.style.touchAction = 'pan-y';
     }
   } else {
-    // Desktop/tablet: Start hidden; we'll fade in once Paddle sets real iframe height
     container.style.opacity = '0';
     backBtn.style.opacity = '0';
   }
@@ -1070,7 +1089,12 @@ window.__A108_CHECKOUT_HANDLER__ = function(cart) {
     };
     poll();
   };
-  if (!isMobile) runHeightAnimation();
+  if (!isMobile) {
+    runHeightAnimation();
+  } else {
+    // Mobile: just fade in the checkout after a brief delay for Paddle to start rendering
+    setTimeout(() => fadeInCheckout(), 120);
+  }
 
   // BACK BUTTON
   backBtn.onclick = async function(e) {
@@ -1112,10 +1136,8 @@ window.__A108_CHECKOUT_HANDLER__ = function(cart) {
       } catch { el.style.opacity = ''; return Promise.resolve(); }
     };
 
-    // Fade out checkout UI first (prevents a flash/jump)
-    if (!isMobile) {
-      await Promise.all([fadeOut(container), fadeOut(backBtn)]);
-    }
+    // Fade out checkout UI
+    await Promise.all([fadeOut(container), fadeOut(backBtn)]);
 
     // Close Paddle
     try { window.Paddle.Checkout.close(); } catch (err) { console.log('Paddle close error:', err); }
@@ -1126,7 +1148,7 @@ window.__A108_CHECKOUT_HANDLER__ = function(cart) {
     container.style.opacity = '';
     backBtn.style.opacity = '';
 
-    // SHOW cart
+    // SHOW cart (start hidden for fade-in)
     const cartData = JSON.parse(localStorage.getItem('webflow_cart') || '[]');
     const toShow = [];
     if (cartData.length === 0) {
@@ -1136,34 +1158,12 @@ window.__A108_CHECKOUT_HANDLER__ = function(cart) {
       if (footer) { footer.style.display = 'flex'; footer.style.opacity = '0'; toShow.push(footer); }
     }
 
-    // Wait for layout & Paddle iframe to clear before measuring
+    // Wait for layout
     await new Promise(r => requestAnimationFrame(r));
     await new Promise(r => requestAnimationFrame(r));
 
-    // Animate back to cart height, then fully reset
-    if (content && fromH > 0) {
-      const toH = content.scrollHeight;
-      content.style.height = fromH + 'px';
-      content.style.overflow = 'hidden';
-      void content.offsetHeight;
-      await new Promise(res => {
-        const a = content.animate(
-          [{ height: fromH + 'px' }, { height: toH + 'px' }],
-          { duration: CONTENT_MS, easing: CONTENT_EASE }
-        );
-        a.onfinish = () => res();
-      });
-    }
-    if (content) {
-      content.style.height = '';
-      content.style.overflow = '';
-    }
-
-    // Fade in cart UI after height settles
-    if (!isMobile) {
-      await Promise.all(toShow.map(fadeIn));
-    } else {
-      // Mobile: ensure content keeps full-screen scroll behavior
+    if (isMobile) {
+      // Mobile: keep full-screen, just fade in cart
       if (content) {
         content.style.height = '100vh';
         try {
@@ -1172,7 +1172,27 @@ window.__A108_CHECKOUT_HANDLER__ = function(cart) {
         content.style.overflow = 'auto';
         content.style.webkitOverflowScrolling = 'touch';
       }
-      toShow.forEach(el => { if (el) { el.style.opacity = ''; } });
+      await Promise.all(toShow.map(fadeIn));
+    } else {
+      // Desktop: animate height, then fade in
+      if (content && fromH > 0) {
+        const toH = content.scrollHeight;
+        content.style.height = fromH + 'px';
+        content.style.overflow = 'hidden';
+        void content.offsetHeight;
+        await new Promise(res => {
+          const a = content.animate(
+            [{ height: fromH + 'px' }, { height: toH + 'px' }],
+            { duration: CONTENT_MS, easing: CONTENT_EASE }
+          );
+          a.onfinish = () => res();
+        });
+      }
+      if (content) {
+        content.style.height = '';
+        content.style.overflow = '';
+      }
+      await Promise.all(toShow.map(fadeIn));
     }
   };
 
