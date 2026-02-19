@@ -502,6 +502,14 @@
         canvas.remove();
         return;
       }
+      if (!ctx || !shot) {
+        try {
+          const a = el.animate([{opacity:1},{opacity:0}], {duration: 220, easing:'cubic-bezier(.2,.8,.2,1)'});
+          await new Promise(r => { a.onfinish = r; });
+        } catch {}
+        canvas.remove();
+        return;
+      }
       ctx.drawImage(shot, 0, 0, canvas.width, canvas.height);
       const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
       const data = img.data;
@@ -634,27 +642,30 @@
 
         if (isNowEmpty) {
           if (isMobile) {
-            // Mobile: dust + fade to empty, but skip height pinning/animation (stays full-screen)
             if (emptyEl) { emptyEl.style.opacity = '0'; }
-            const dustP = dust(itemEl);
-            const footerP = fadeOutFooter();
-            await Promise.all([footerP, dustP]);
+            try {
+              await Promise.all([fadeOutFooter(), dust(itemEl)]);
+            } catch (err) {
+              console.warn('Cart remove animation error:', err);
+            }
             if (CFG.HOLD_AFTER_DUST) await new Promise(r => setTimeout(r, CFG.HOLD_AFTER_DUST));
-            itemEl.remove();
+            // Cleanup ALWAYS runs regardless of animation success
+            try { itemEl.remove(); } catch {}
             wrapper.style.display = 'none';
             if (footerEl) footerEl.style.display = 'none';
             updateBadge();
             await fadeInEmpty();
           } else {
-            // Desktop: dust + height animation to pinned empty height
             const startH = content ? content.getBoundingClientRect().height : CFG.EMPTY_PIN_H_PX;
             if (emptyEl) { emptyEl.style.display = 'block'; emptyEl.style.opacity = '0'; }
             pinContentHeight(Math.max(startH, CFG.EMPTY_PIN_H_PX));
-            const dustP = dust(itemEl);
-            const footerP = fadeOutFooter();
-            await Promise.all([footerP, dustP]);
+            try {
+              await Promise.all([fadeOutFooter(), dust(itemEl)]);
+            } catch (err) {
+              console.warn('Cart remove animation error:', err);
+            }
             if (CFG.HOLD_AFTER_DUST) await new Promise(r => setTimeout(r, CFG.HOLD_AFTER_DUST));
-            itemEl.remove();
+            try { itemEl.remove(); } catch {}
             wrapper.style.display = 'none';
             if (footerEl) footerEl.style.display = 'none';
             updateBadge();
@@ -664,7 +675,11 @@
             pinContentHeight(CFG.EMPTY_PIN_H_PX);
           }
         } else {
-          await dust(itemEl);
+          try {
+            await dust(itemEl);
+          } catch (err) {
+            console.warn('Cart remove animation error:', err);
+          }
           if (CFG.HOLD_AFTER_DUST) await new Promise(r => setTimeout(r, CFG.HOLD_AFTER_DUST));
           await collapseWithFLIP(itemEl);
           $$(CFG.ITEM, wrapper).forEach((el, i) => {
