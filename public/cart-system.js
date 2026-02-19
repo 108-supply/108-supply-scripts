@@ -694,17 +694,17 @@
 // ===================================
 window.__A108_CHECKOUT_HANDLER__ = function(cart) {
   console.log('🛒 Opening Checkout');
-  
+
   if (!window.Paddle) {
     alert('Paddle not loaded!');
     return;
   }
-  
+
   const items = cart.map(item => ({
     priceId: item.priceId,
     quantity: 1
   }));
-  
+
   // GET ELEMENTS
   const content = document.querySelector('.cart-content');
   const wrapper = document.getElementById('cart-items-wrapper');
@@ -712,73 +712,75 @@ window.__A108_CHECKOUT_HANDLER__ = function(cart) {
   const emptyEl = document.getElementById('cart-empty');
   const container = document.getElementById('checkout-container');
   const backBtn = document.getElementById('checkout-back-btn');
-  
+
   if (!container || !backBtn) {
     alert('Missing elements!');
     return;
   }
-  
-  console.log('Elements found:', {
-    wrapper: !!wrapper,
-    footer: !!footer,
-    empty: !!emptyEl,
-    container: !!container,
-    backBtn: !!backBtn
-  });
-  
+
+  const CHECKOUT_MIN_H = 600;
+  const CONTENT_MS = 520;
+  const CONTENT_EASE = 'cubic-bezier(.2,.8,.2,1)';
+
+  // Helper: same pattern as animateContentHeight() from removeFlow
+  async function animateContentHeight(fromPx, toPx) {
+    if (!content) return;
+    const from = Math.max(0, fromPx);
+    const to = Math.max(0, toPx);
+    content.style.height = from + 'px';
+    content.style.overflow = 'hidden';
+    void content.offsetHeight;
+    await new Promise(res => {
+      const a = content.animate(
+        [{ height: from + 'px' }, { height: to + 'px' }],
+        { duration: CONTENT_MS, easing: CONTENT_EASE }
+      );
+      a.onfinish = () => res();
+    });
+    content.style.height = to + 'px';
+  }
+
   // STORE current height for animation
   const startH = content ? content.getBoundingClientRect().height : 0;
-  
+
   // HIDE cart, SHOW checkout
   if (wrapper) wrapper.style.display = 'none';
   if (footer) footer.style.display = 'none';
   if (emptyEl) emptyEl.style.display = 'none';
-  
+
   container.style.display = 'block';
   backBtn.style.display = 'block';
-  
-  console.log('Cart hidden, checkout shown');
-  
-  // ANIMATE height
-  if (content && startH > 0) {
-    setTimeout(() => {
-      const endH = content.scrollHeight;
-      content.style.height = startH + 'px';
-      content.style.overflow = 'hidden';
-      
-      setTimeout(() => {
-        content.style.transition = 'height 0.52s cubic-bezier(.2,.8,.2,1)';
-        content.style.height = endH + 'px';
-        
-        setTimeout(() => {
-          content.style.height = '';
-          content.style.overflow = '';
-          content.style.transition = '';
-        }, 520);
-      }, 10);
-    }, 10);
-  }
+  backBtn.style.position = 'relative';
+  backBtn.style.zIndex = '10';
+
+  // Run height animation - Paddle iframe loads async, use min 600px; keep overflow auto for scroll
+  const runHeightAnimation = async () => {
+    if (!content || startH <= 0) return;
+    const endH = Math.max(CHECKOUT_MIN_H, content.scrollHeight);
+    await animateContentHeight(startH, endH);
+    content.style.overflow = 'auto';
+    // Keep height pinned so we don't collapse if iframe loads late
+  };
+  runHeightAnimation();
   
   // BACK BUTTON - simple onclick
-  backBtn.onclick = function(e) {
+  backBtn.onclick = async function(e) {
     e.preventDefault();
     console.log('Back button clicked');
-    
+
     // Close Paddle
     try {
       window.Paddle.Checkout.close();
     } catch (err) {
       console.log('Paddle close error:', err);
     }
-    
+
     const startH = content ? content.getBoundingClientRect().height : 0;
-    
+
     // HIDE checkout
     container.style.display = 'none';
     backBtn.style.display = 'none';
-    
-    console.log('Checkout hidden, showing cart');
-    
+
     // SHOW cart
     const cartData = JSON.parse(localStorage.getItem('webflow_cart') || '[]');
     if (cartData.length === 0) {
@@ -787,25 +789,22 @@ window.__A108_CHECKOUT_HANDLER__ = function(cart) {
       if (wrapper) wrapper.style.display = 'flex';
       if (footer) footer.style.display = 'flex';
     }
-    
-    // ANIMATE height back
+
+    // ANIMATE height back - same Web Animations API pattern
     if (content && startH > 0) {
-      setTimeout(() => {
-        const endH = content.scrollHeight;
-        content.style.height = startH + 'px';
-        content.style.overflow = 'hidden';
-        
-        setTimeout(() => {
-          content.style.transition = 'height 0.52s cubic-bezier(.2,.8,.2,1)';
-          content.style.height = endH + 'px';
-          
-          setTimeout(() => {
-            content.style.height = '';
-            content.style.overflow = '';
-            content.style.transition = '';
-          }, 520);
-        }, 10);
-      }, 10);
+      void content.offsetHeight;
+      const endH = content.scrollHeight;
+      content.style.height = startH + 'px';
+      content.style.overflow = 'hidden';
+      await new Promise(res => {
+        const a = content.animate(
+          [{ height: startH + 'px' }, { height: endH + 'px' }],
+          { duration: CONTENT_MS, easing: CONTENT_EASE }
+        );
+        a.onfinish = () => res();
+      });
+      content.style.height = '';
+      content.style.overflow = '';
     }
   };
   
