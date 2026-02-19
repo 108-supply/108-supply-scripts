@@ -718,7 +718,7 @@ window.__A108_CHECKOUT_HANDLER__ = function(cart) {
     return;
   }
 
-  const CHECKOUT_MIN_H = 650;
+  const CHECKOUT_MIN_H = 450; // Paddle recommended minimum initial inline height
   const CHECKOUT_SAFE_PAD_PX = 48; // compliance bar (~38px) + buffer
   const CONTENT_MS = 520;
   const CONTENT_EASE = 'cubic-bezier(.2,.8,.2,1)';
@@ -727,6 +727,7 @@ window.__A108_CHECKOUT_HANDLER__ = function(cart) {
   let checkoutPollTimer = null;
   let checkoutSettleTimer = null;
   let isAdjusting = false;
+  let iframeStableTimer = null;
 
   // Helper: same pattern as animateContentHeight() from removeFlow
   async function animateContentHeight(fromPx, toPx) {
@@ -753,30 +754,28 @@ window.__A108_CHECKOUT_HANDLER__ = function(cart) {
   function normalizeCheckoutIframeStyles() {
     const iframe = getIframeEl();
     if (!iframe) return;
-    // Paddle may inject very high z-index / fixed positioning.
-    // We want the iframe to stay in normal flow (so container height works)
-    // and to have a sensible explicit height (so it can't collapse to ~150px).
-    const rectH = Math.ceil(iframe.getBoundingClientRect().height || 0);
-    const styleH = Math.ceil(parseFloat(iframe.style.height || '0') || 0);
-    const desiredH = Math.max(600, rectH, styleH);
-
+    // Do NOT force iframe height (Paddle sets it). Only ensure it can't cover Back button.
     try { iframe.style.zIndex = '0'; } catch {}
-    try { iframe.style.position = 'relative'; } catch {}
-    try { iframe.style.top = '0px'; iframe.style.left = '0px'; } catch {}
     try { iframe.style.display = 'block'; } catch {}
     try { iframe.style.width = '100%'; } catch {}
-    try { iframe.style.minHeight = desiredH + 'px'; } catch {}
-    try { iframe.style.height = desiredH + 'px'; } catch {}
+  }
 
-    // Keep wrapper tall as well, so layout/scrollHeight reflects checkout size
-    try { container.style.minHeight = desiredH + 'px'; } catch {}
+  function readPaddleIframeHeightPx() {
+    const iframe = getIframeEl();
+    if (!iframe) return 0;
+    const fromStyle = parseFloat(iframe.style.height || '0') || 0;
+    const fromAttr = parseFloat(iframe.getAttribute('height') || '0') || 0;
+    const fromProp = typeof iframe.height === 'number'
+      ? iframe.height
+      : (parseFloat(String(iframe.height || '0')) || 0);
+    const fromRect = Math.ceil(iframe.getBoundingClientRect().height || 0);
+    return Math.max(fromStyle, fromAttr, fromProp, fromRect);
   }
 
   function getCheckoutViewHeight() {
     if (!backBtn || !container) return CHECKOUT_MIN_H;
     const backH = Math.ceil(backBtn.getBoundingClientRect().height || 0);
-    const iframe = getIframeEl();
-    const iframeH = iframe ? Math.ceil(iframe.getBoundingClientRect().height || 0) : 0;
+    const iframeH = Math.ceil(readPaddleIframeHeightPx() || 0);
     const containerH = Math.ceil(container.getBoundingClientRect().height || 0);
     const containerScrollH = Math.ceil(container.scrollHeight || 0);
     const innerH = Math.max(iframeH, containerH, containerScrollH, CHECKOUT_MIN_H);
@@ -793,7 +792,7 @@ window.__A108_CHECKOUT_HANDLER__ = function(cart) {
       const measuredH = getCheckoutViewHeight();
       const currentH = content.getBoundingClientRect().height || 0;
       // Only EXPAND, never shrink - iframe measurement can be wrong during load
-      const targetH = Math.max(measuredH, currentH, 600);
+      const targetH = Math.max(measuredH, currentH, CHECKOUT_MIN_H);
       if (targetH > 0 && targetH > currentH && Math.abs(targetH - currentH) > 2) {
         await animateContentHeight(currentH, targetH);
       }
@@ -814,6 +813,9 @@ window.__A108_CHECKOUT_HANDLER__ = function(cart) {
 
   container.style.display = 'block';
   backBtn.style.display = 'block';
+  // Start hidden; we'll fade in once Paddle sets real iframe height
+  container.style.opacity = '0';
+  backBtn.style.opacity = '0';
 
   // Ensure back button is ABOVE checkout iframe: first in DOM + higher z-index
   if (content && backBtn.parentNode === content && container.parentNode === content) {
@@ -826,10 +828,24 @@ window.__A108_CHECKOUT_HANDLER__ = function(cart) {
   backBtn.style.zIndex = '2147483647';
   backBtn.style.pointerEvents = 'auto';
 
-  // Initial height animation - use fixed 650px; ResizeObserver can only expand, never shrink
+  const fadeInCheckout = async () => {
+    const fadeIn = (el) => {
+      if (!el) return Promise.resolve();
+      try {
+        const a = el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: FADE_MS, easing: 'cubic-bezier(.2,.8,.2,1)' });
+        return new Promise(r => { a.onfinish = () => { el.style.opacity = ''; r(); }; });
+      } catch { el.style.opacity = ''; return Promise.resolve(); }
+    };
+    await Promise.all([fadeIn(container), fadeIn(backBtn)]);
+  };
+
+  // Initial height animation; then wait for Paddle iframe height to stabilize; then fit + fade in
   const runHeightAnimation = async () => {
     if (!content || startH <= 0) return;
-    const safeMin = Math.max(CHECKOUT_MIN_H, Math.ceil(backBtn.getBoundingClientRect().height || 0) + 550);
+    const safeMin = Math.max(
+      CHECKOUT_MIN_H,
+      Math.ceil(backBtn.getBoundingClientRect().height || 0) + CHECKOUT_MIN_H + CHECKOUT_SAFE_PAD_PX
+    );
     await animateContentHeight(startH, safeMin);
     content.style.overflow = 'auto';
 
@@ -842,18 +858,33 @@ window.__A108_CHECKOUT_HANDLER__ = function(cart) {
     });
     checkoutResizeObserver.observe(container);
 
-    // Poll until iframe appears (Paddle injects async), then do precise adjust
+    // Poll until iframe appears and its height stabilizes, then do precise adjust + fade in
     const startedAt = Date.now();
+    let lastH = 0;
+    let lastChangeAt = Date.now();
     const poll = () => {
       if (!container || container.style.display === 'none') return;
       const iframe = getIframeEl();
       if (iframe) {
         normalizeCheckoutIframeStyles();
-        adjustToCheckoutHeight();
-        return;
+        const h = readPaddleIframeHeightPx();
+        if (Math.abs(h - lastH) > 2) {
+          lastH = h;
+          lastChangeAt = Date.now();
+        }
+
+        // stable when no changes for a bit and we have meaningful height
+        if (h >= CHECKOUT_MIN_H && Date.now() - lastChangeAt > 220) {
+          adjustToCheckoutHeight().then(() => fadeInCheckout());
+          return;
+        }
       }
       if (Date.now() - startedAt < 4000) {
         checkoutPollTimer = setTimeout(poll, 80);
+      } else {
+        // fallback: show it even if we couldn't read a stable height
+        fadeInCheckout();
+        adjustToCheckoutHeight();
       }
     };
     poll();
@@ -876,6 +907,10 @@ window.__A108_CHECKOUT_HANDLER__ = function(cart) {
     if (checkoutSettleTimer) {
       clearTimeout(checkoutSettleTimer);
       checkoutSettleTimer = null;
+    }
+    if (iframeStableTimer) {
+      clearTimeout(iframeStableTimer);
+      iframeStableTimer = null;
     }
 
     const fromH = content ? content.getBoundingClientRect().height : 0;
