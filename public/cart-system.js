@@ -675,6 +675,16 @@
       });
     }
 
+    // MOBILE CLOSE BUTTON
+    const mobileCloseBtn = document.getElementById('cart-close-mobile-btn');
+    if (mobileCloseBtn) {
+      mobileCloseBtn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (isOpen) await hideDrawer();
+      });
+    }
+
     updateBadge();
     updateTotal();
     setEmptyState(getCart().length === 0);
