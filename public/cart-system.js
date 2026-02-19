@@ -270,36 +270,53 @@
       setButtonUI(false, true);
       clearAnimations(overlay);
       clearAnimations(content);
-      
+
       if (overlay) {
         const a = overlay.animate([{opacity:1},{opacity:0}], {
           duration: CFG.CLOSE_MS, easing: 'cubic-bezier(.2,.8,.2,1)'
         });
         a.onfinish = () => { overlay.style.opacity = '0'; overlay.style.display = 'none'; };
       }
-      
-      if (content) {
-        await new Promise(res => {
-          const a = content.animate(
-            [{transform:'translateX(0px)', opacity:1},{transform:`translateX(${CFG.PANEL_X_PX}px)`, opacity:0}],
-            {duration: CFG.CLOSE_MS, easing: 'cubic-bezier(.2,.8,.2,1)'}
-          );
-          a.onfinish = () => { 
-            content.style.opacity = '0'; 
-            content.style.transform = `translateX(${CFG.PANEL_X_PX}px)`; 
-            res(); 
-          };
-        });
-      }
-      
-      if (drawer) drawer.style.display = 'none';
 
-      // Reset mobile fullscreen overrides + unlock scroll
+      if (content) {
+        if (isMobile) {
+          // Mobile: simple fade-out (no translateX slide — drawer is full-screen)
+          await new Promise(res => {
+            const a = content.animate(
+              [{opacity:1},{opacity:0}],
+              {duration: CFG.CLOSE_MS, easing: 'cubic-bezier(.2,.8,.2,1)'}
+            );
+            a.onfinish = () => {
+              content.style.opacity = '0';
+              res();
+            };
+          });
+        } else {
+          // Desktop: slide right + fade out
+          await new Promise(res => {
+            const a = content.animate(
+              [{transform:'translateX(0px)', opacity:1},{transform:`translateX(${CFG.PANEL_X_PX}px)`, opacity:0}],
+              {duration: CFG.CLOSE_MS, easing: 'cubic-bezier(.2,.8,.2,1)'}
+            );
+            a.onfinish = () => {
+              content.style.opacity = '0';
+              content.style.transform = `translateX(${CFG.PANEL_X_PX}px)`;
+              res();
+            };
+          });
+        }
+      }
+
+      // Reset mobile fullscreen overrides before hiding
       if (isMobile && content) {
         content.style.height = '';
         content.style.overflow = '';
         content.style.webkitOverflowScrolling = '';
+        content.style.touchAction = '';
+        content.style.transform = '';
       }
+
+      if (drawer) drawer.style.display = 'none';
       unlockPageScroll();
     }
 
@@ -592,39 +609,37 @@
         updateTotal();
         const isNowEmpty = cart.length === 0;
 
-        // MOBILE: skip heavy dust/FLIP animations; just keep cart state correct & full-screen UX
-        if (isMobile) {
-          if (itemEl && itemEl.remove) itemEl.remove();
-          if (isNowEmpty) {
+        if (isNowEmpty) {
+          if (isMobile) {
+            // Mobile: dust + fade to empty, but skip height pinning/animation (stays full-screen)
+            if (emptyEl) { emptyEl.style.display = 'block'; emptyEl.style.opacity = '0'; }
+            const dustP = dust(itemEl);
+            const footerP = fadeOutFooter();
+            await Promise.all([footerP, dustP]);
+            if (CFG.HOLD_AFTER_DUST) await new Promise(r => setTimeout(r, CFG.HOLD_AFTER_DUST));
+            itemEl.remove();
             wrapper.style.display = 'none';
             if (footerEl) footerEl.style.display = 'none';
-            setEmptyState(true);
+            updateBadge();
+            await fadeInEmpty();
           } else {
-            wrapper.style.display = 'flex';
-            setEmptyState(false);
+            // Desktop: dust + height animation to pinned empty height
+            const startH = content ? content.getBoundingClientRect().height : CFG.EMPTY_PIN_H_PX;
+            if (emptyEl) { emptyEl.style.display = 'block'; emptyEl.style.opacity = '0'; }
+            pinContentHeight(Math.max(startH, CFG.EMPTY_PIN_H_PX));
+            const dustP = dust(itemEl);
+            const footerP = fadeOutFooter();
+            await Promise.all([footerP, dustP]);
+            if (CFG.HOLD_AFTER_DUST) await new Promise(r => setTimeout(r, CFG.HOLD_AFTER_DUST));
+            itemEl.remove();
+            wrapper.style.display = 'none';
+            if (footerEl) footerEl.style.display = 'none';
+            updateBadge();
+            await animateContentHeight(Math.max(startH, CFG.EMPTY_PIN_H_PX), CFG.EMPTY_PIN_H_PX);
+            await fadeInEmpty();
+            isHeightPinnedEmpty = true;
+            pinContentHeight(CFG.EMPTY_PIN_H_PX);
           }
-          updateBadge();
-          await renderCart();
-          window.dispatchEvent(new Event('cartUpdated'));
-          return;
-        }
-
-        if (isNowEmpty) {
-          const startH = content ? content.getBoundingClientRect().height : CFG.EMPTY_PIN_H_PX;
-          if (emptyEl) { emptyEl.style.display = 'block'; emptyEl.style.opacity = '0'; }
-          pinContentHeight(Math.max(startH, CFG.EMPTY_PIN_H_PX));
-          const dustP = dust(itemEl);
-          const footerP = fadeOutFooter();
-          await Promise.all([footerP, dustP]);
-          if (CFG.HOLD_AFTER_DUST) await new Promise(r => setTimeout(r, CFG.HOLD_AFTER_DUST));
-          itemEl.remove();
-          wrapper.style.display = 'none';
-          if (footerEl) footerEl.style.display = 'none';
-          updateBadge();
-          await animateContentHeight(Math.max(startH, CFG.EMPTY_PIN_H_PX), CFG.EMPTY_PIN_H_PX);
-          await fadeInEmpty();
-          isHeightPinnedEmpty = true;
-          pinContentHeight(CFG.EMPTY_PIN_H_PX);
         } else {
           await dust(itemEl);
           if (CFG.HOLD_AFTER_DUST) await new Promise(r => setTimeout(r, CFG.HOLD_AFTER_DUST));
@@ -635,9 +650,9 @@
           });
           updateBadge();
         }
-        window.dispatchEvent(new Event('cartUpdated'));
       } finally {
-        setTimeout(() => { isRemoving = false; }, 120);
+        isRemoving = false;
+        window.dispatchEvent(new Event('cartUpdated'));
       }
     }
 
