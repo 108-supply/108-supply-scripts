@@ -85,30 +85,19 @@
     // First pass scroll (no offset)
     window._108ScrollTo(targetEl, { behavior, duration, offset: 0 });
 
-    // Nudge pass (precise)
-    let tries = 0;
-    function nudge() {
-      tries++;
-
+    // Single gentle correction after the primary smooth scroll.
+    const settleMs = Math.max(140, Math.round(duration * 1000) + 40);
+    setTimeout(() => {
       const desiredTop = desiredNavigatorTop();
       const rect = nav.getBoundingClientRect();
-
-      // Want nav top exactly on desiredTop
       const delta = rect.top - desiredTop;
 
-      // close enough
-      if (Math.abs(delta) < 1 || tries >= 6) return;
+      // Avoid tiny micro-jumps.
+      if (Math.abs(delta) < 6) return;
 
-      // Move scroll by delta to force nav into exact sticky position
       const targetY = window.scrollY + delta;
-
-      window._108ScrollTo(targetY, { behavior: 'auto', duration: 0, offset: 0 });
-
-      requestAnimationFrame(nudge);
-    }
-
-    // Start correction shortly after scroll begins
-    setTimeout(() => requestAnimationFrame(nudge), 50);
+      window._108ScrollTo(targetY, { behavior: 'smooth', duration: 0.22, offset: 0 });
+    }, settleMs);
   };
 
   // 6) Anchors (same-page + cross-page)

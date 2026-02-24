@@ -43,8 +43,10 @@
       if (entry.isIntersecting) {
         const run = videosToRun(card);
         videos.forEach(v => {
-          if (run.has(v) && v.paused && v.readyState >= 2) {
-            v.play().catch(() => {});
+          if (run.has(v)) {
+            if (v.paused && v.readyState >= 2) {
+              v.play().catch(() => {});
+            }
             return;
           }
           v.pause();
