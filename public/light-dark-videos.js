@@ -1,6 +1,9 @@
 (() => {
   const LIGHT_CLASS = "is-base";
   const inLight = () => document.body.classList.contains(LIGHT_CLASS);
+  const MODE_ATTR = "data-video-default";
+  const MODE_MAIN = "main";
+  const MODE_HOVER = "hover";
 
   const queue = new Set();
   let scheduled = false;
@@ -27,12 +30,28 @@
     return { pair, dark, light, hover };
   }
 
-  function getReferenceVideo(pair) {
+  function getDefaultMode() {
+    const m = (document.body.getAttribute(MODE_ATTR) || MODE_MAIN).toLowerCase();
+    return m === MODE_HOVER ? MODE_HOVER : MODE_MAIN;
+  }
+
+  function isHoverDefaultMode() {
+    return getDefaultMode() === MODE_HOVER;
+  }
+
+  function getMainVideo(pair) {
     if (!pair) return null;
     const dark = pair.querySelector("video.video-dark");
     const light = pair.querySelector("video.video-light");
-    if (inLight() && light && light.dataset.loaded === "1" && light.readyState >= 2) return light;
+    if (inLight() && light && light.dataset.loaded === "1") return light;
     return dark;
+  }
+
+  function getReferenceVideo(pair) {
+    if (!pair) return null;
+    const main = getMainVideo(pair);
+    if (main && main.readyState >= 2) return main;
+    return pair.querySelector("video.video-dark");
   }
 
   function safeSync(reference, target) {
@@ -183,6 +202,12 @@
         const play = dark.play();
         if (play && play.catch) play.catch(() => {});
       }
+
+      if (visible && isHoverDefaultMode() && hover && hover.dataset.src && !sourceAttr(hover)) {
+        loadOne(hover);
+      }
+
+      applyCardVideoMode(card);
     });
 
     if (typeof window._108Grid?.kickVisiblePlayback === "function") {
@@ -226,6 +251,19 @@
   // ---------- HOVER ----------
 
   function showHover(pair, hoverVideo) {
+    const card = pair.closest(".motion-template_card");
+    if (card) card.dataset.hovering = "1";
+
+    if (isHoverDefaultMode()) {
+      hoverVideo.style.opacity = "0";
+      const main = getMainVideo(pair);
+      if (main && main.paused && main.readyState >= 2) {
+        const p = main.play();
+        if (p && p.catch) p.catch(() => {});
+      }
+      return;
+    }
+
     // lazy load przy pierwszym hover
     if (hoverVideo.dataset.loaded !== "1") {
       loadOne(hoverVideo);
@@ -246,11 +284,64 @@
   }
 
   function hideHover(hoverVideo) {
+    const pair = hoverVideo.closest(".video-pair");
+    const card = hoverVideo.closest(".motion-template_card");
+    if (card) card.dataset.hovering = "0";
+
+    if (isHoverDefaultMode()) {
+      if (pair && hoverVideo.dataset.loaded !== "1") {
+        loadOne(hoverVideo);
+      }
+      hoverVideo.style.opacity = "1";
+      if (hoverVideo.readyState >= 2 && hoverVideo.paused) {
+        const p = hoverVideo.play();
+        if (p && p.catch) p.catch(() => {});
+      }
+      return;
+    }
+
     hoverVideo.style.opacity = "0";
     // poczekaj na fade out zanim pauzujesz
     setTimeout(() => {
       hoverVideo.pause();
     }, 200);
+  }
+
+  function applyCardVideoMode(card) {
+    const pair = card.querySelector(".video-pair");
+    if (!pair) return;
+    const hoverVideo = pair.querySelector("video.video-hover");
+    if (!hoverVideo) return;
+
+    const hovering = card.dataset.hovering === "1" || card.classList.contains("hover-active");
+    const main = getMainVideo(pair);
+
+    if (isHoverDefaultMode()) {
+      if (!hovering) {
+        if (hoverVideo.dataset.loaded !== "1") loadOne(hoverVideo);
+        hoverVideo.style.opacity = "1";
+        if (hoverVideo.readyState >= 2 && hoverVideo.paused) {
+          const p = hoverVideo.play();
+          if (p && p.catch) p.catch(() => {});
+        }
+      } else {
+        hoverVideo.style.opacity = "0";
+      }
+      if (main && main.paused && main.readyState >= 2) {
+        const p = main.play();
+        if (p && p.catch) p.catch(() => {});
+      }
+      return;
+    }
+
+    if (!hovering) {
+      hoverVideo.style.opacity = "0";
+      if (!hoverVideo.paused) hoverVideo.pause();
+    }
+    if (main && main.paused && main.readyState >= 2) {
+      const p = main.play();
+      if (p && p.catch) p.catch(() => {});
+    }
   }
 
   function initCards() {
@@ -283,6 +374,7 @@
       // desktop hover
       card.addEventListener("mouseenter", () => showHover(pair, hoverVideo));
       card.addEventListener("mouseleave", () => hideHover(hoverVideo));
+      applyCardVideoMode(card);
     });
   }
 
@@ -314,8 +406,46 @@
           btn.textContent = "Show examples";
           hideHover(hoverVideo);
         }
+        applyCardVideoMode(card);
       });
     });
+  }
+
+  function updateModeButtonsUI() {
+    const mode = getDefaultMode();
+    document.querySelectorAll("[data-video-default-btn]").forEach(btn => {
+      const v = (btn.getAttribute("data-video-default-btn") || "").toLowerCase();
+      btn.classList.toggle("is-active", v === mode);
+    });
+  }
+
+  function setVideoDefaultMode(mode) {
+    const next = mode === MODE_HOVER ? MODE_HOVER : MODE_MAIN;
+    document.body.setAttribute(MODE_ATTR, next);
+    updateModeButtonsUI();
+
+    document.querySelectorAll(".motion-template_card").forEach(applyCardVideoMode);
+    refreshProductVideoLoading();
+    syncVisiblePairs();
+    if (typeof window._108Grid?.refreshVideoObserver === "function") {
+      window._108Grid.refreshVideoObserver();
+    }
+    if (typeof window._108Grid?.kickVisiblePlayback === "function") {
+      window._108Grid.kickVisiblePlayback();
+    }
+  }
+
+  function initVideoModeSwitcher() {
+    document.querySelectorAll("[data-video-default-btn]").forEach(btn => {
+      if (btn.dataset.videoDefaultInit === "1") return;
+      btn.dataset.videoDefaultInit = "1";
+      btn.addEventListener("click", (e) => {
+        e.preventDefault();
+        const mode = (btn.getAttribute("data-video-default-btn") || MODE_MAIN).toLowerCase();
+        setVideoDefaultMode(mode);
+      });
+    });
+    updateModeButtonsUI();
   }
 
   // ---------- INIT ----------
@@ -323,6 +453,7 @@
   function init() {
     initCards();
     initMobileToggle();
+    initVideoModeSwitcher();
 
     // Wait until grid pagination/filter scripts settle visibility state.
     let tries = 0;
@@ -347,6 +478,7 @@
   window._108Grid = window._108Grid || {};
   window._108Grid.refreshLightVideoObserver = refreshObservedLightVideos;
   window._108Grid.refreshProductVideoLoading = refreshProductVideoLoading;
+  window._108Grid.setVideoDefaultMode = setVideoDefaultMode;
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", init);
