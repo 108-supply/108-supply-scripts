@@ -106,16 +106,9 @@
   }
 
   // Re-observe after filter/load more
-  window.BYQGrid = window.BYQGrid || {};
-  window.BYQGrid.refreshVideoObserver = syncObservedCards;
-  window.BYQGrid.kickVisiblePlayback = kickVisiblePlayback;
-
-  // Safari/Chrome recovery: some muted videos may stay paused after ready events.
-  // Gentle periodic kick for visible observed cards.
-  setInterval(() => {
-    if (document.hidden) return;
-    kickVisiblePlayback();
-  }, 700);
+  window._108Grid = window._108Grid || {};
+  window._108Grid.refreshVideoObserver = syncObservedCards;
+  window._108Grid.kickVisiblePlayback = kickVisiblePlayback;
 
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) kickVisiblePlayback();
@@ -235,14 +228,14 @@
           loadMoreBtn.style.display = (limit < filteredList().length) ? "" : "none";
         }
 
-        if (typeof window.BYQGrid?.refreshVideoObserver === "function") {
-          window.BYQGrid.refreshVideoObserver();
+        if (typeof window._108Grid?.refreshVideoObserver === "function") {
+          window._108Grid.refreshVideoObserver();
         }
-        if (typeof window.BYQGrid?.refreshLightVideoObserver === "function") {
-          window.BYQGrid.refreshLightVideoObserver();
+        if (typeof window._108Grid?.refreshLightVideoObserver === "function") {
+          window._108Grid.refreshLightVideoObserver();
         }
-        if (typeof window.BYQGrid?.refreshProductVideoLoading === "function") {
-          window.BYQGrid.refreshProductVideoLoading();
+        if (typeof window._108Grid?.refreshProductVideoLoading === "function") {
+          window._108Grid.refreshProductVideoLoading();
         }
   
         return { entering, staying };
@@ -300,11 +293,11 @@
       };
     }
   
-    window.BYQGrid = window.BYQGrid || {};
-    window.BYQGrid.engine = createEngine();
+    window._108Grid = window._108Grid || {};
+    window._108Grid.engine = createEngine();
   
-    if (window.BYQGrid.engine) {
-      const E = window.BYQGrid.engine;
+    if (window._108Grid.engine) {
+      const E = window._108Grid.engine;
       E.ensureRadioDefault();
       const initList = E.filteredList();
       const keepInit = initList.slice(0, CONFIG.paging.initial);
@@ -326,14 +319,14 @@
         loadMoreBtn.style.display = (CONFIG.paging.initial < initList.length) ? "" : "none";
       }
 
-      if (typeof window.BYQGrid?.refreshVideoObserver === "function") {
-        window.BYQGrid.refreshVideoObserver();
+      if (typeof window._108Grid?.refreshVideoObserver === "function") {
+        window._108Grid.refreshVideoObserver();
       }
-      if (typeof window.BYQGrid?.refreshLightVideoObserver === "function") {
-        window.BYQGrid.refreshLightVideoObserver();
+      if (typeof window._108Grid?.refreshLightVideoObserver === "function") {
+        window._108Grid.refreshLightVideoObserver();
       }
-      if (typeof window.BYQGrid?.refreshProductVideoLoading === "function") {
-        window.BYQGrid.refreshProductVideoLoading();
+      if (typeof window._108Grid?.refreshProductVideoLoading === "function") {
+        window._108Grid.refreshProductVideoLoading();
       }
   
       E.syncFilterActiveFromChecked();
@@ -392,7 +385,7 @@
     };
   
     function initAnimator() {
-      const E = window.BYQGrid?.engine;
+      const E = window._108Grid?.engine;
       if (!E) return console.warn("[Grid] engine missing");
       if (!window.gsap || !window.Flip) return console.warn("[Grid] GSAP/Flip missing");
   
@@ -836,7 +829,7 @@
         });
       }
   
-      window.BYQGrid.anim = ANIM;
+      window._108Grid.anim = ANIM;
   
       const initialSize = grid.getAttribute("data-size-grid");
       if (initialSize) {
@@ -848,8 +841,8 @@
       console.log("[Grid] animator ready");
     }
   
-    window.BYQGrid = window.BYQGrid || {};
-    window.BYQGrid.initAnimator = initAnimator;
+    window._108Grid = window._108Grid || {};
+    window._108Grid.initAnimator = initAnimator;
   
     document.readyState === "loading"
       ? document.addEventListener("DOMContentLoaded", initAnimator)
