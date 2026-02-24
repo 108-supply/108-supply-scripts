@@ -70,6 +70,14 @@
     });
   }
 
+  function kickVisiblePlayback() {
+    document.querySelectorAll(".motion-template_card[data-observed='true']").forEach(card => {
+      if (!isCardVisible(card)) return;
+      if (!isCardInViewport(card)) return;
+      applyPlaybackForCard(card);
+    });
+  }
+
   const observer = new IntersectionObserver((entries) => {
     entries.forEach(entry => {
       const card = entry.target;
@@ -114,7 +122,10 @@
 
   function deferredSync() {
     requestAnimationFrame(() => {
-      requestAnimationFrame(syncObservedCards);
+      requestAnimationFrame(() => {
+        syncObservedCards();
+        kickVisiblePlayback();
+      });
     });
   }
 
@@ -128,6 +139,17 @@
   // Re-observe after filter/load more
   window.BYQGrid = window.BYQGrid || {};
   window.BYQGrid.refreshVideoObserver = syncObservedCards;
+
+  // Safari/Chrome recovery: some muted videos may stay paused after ready events.
+  // Gentle periodic kick for visible observed cards.
+  setInterval(() => {
+    if (document.hidden) return;
+    kickVisiblePlayback();
+  }, 700);
+
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) kickVisiblePlayback();
+  });
 
   console.log('[VideoViewport] Initialized - videos pause when off-screen');
 })();
