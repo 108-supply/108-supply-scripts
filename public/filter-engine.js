@@ -35,25 +35,52 @@
     return run;
   }
 
+  function isCardInViewport(card) {
+    const r = card.getBoundingClientRect();
+    return r.bottom > -120 && r.top < window.innerHeight + 120;
+  }
+
+  function bindPlayWhenReady(video, card) {
+    if (video.dataset.playWhenReadyBound === "1") return;
+    video.dataset.playWhenReadyBound = "1";
+
+    const tryPlay = () => {
+      if (!isCardVisible(card)) return;
+      if (!isCardInViewport(card)) return;
+      if (!videosToRun(card).has(video)) return;
+      if (video.paused && video.readyState >= 2) {
+        video.play().catch(() => {});
+      }
+    };
+
+    video.addEventListener("loadeddata", tryPlay);
+    video.addEventListener("canplay", tryPlay);
+  }
+
+  function applyPlaybackForCard(card) {
+    const videos = card.querySelectorAll("video");
+    const run = videosToRun(card);
+    videos.forEach(v => {
+      bindPlayWhenReady(v, card);
+      if (run.has(v)) {
+        if (v.paused && v.readyState >= 2) {
+          v.play().catch(() => {});
+        }
+        return;
+      }
+      v.pause();
+    });
+  }
+
   const observer = new IntersectionObserver((entries) => {
     entries.forEach(entry => {
       const card = entry.target;
-      const videos = card.querySelectorAll('video');
       
       if (entry.isIntersecting) {
-        const run = videosToRun(card);
-        videos.forEach(v => {
-          if (run.has(v)) {
-            if (v.paused && v.readyState >= 2) {
-              v.play().catch(() => {});
-            }
-            return;
-          }
-          v.pause();
-        });
+        applyPlaybackForCard(card);
       } else {
         // Card poza viewport - pauzuj (oszczędność CPU)
-        videos.forEach(v => {
+        card.querySelectorAll("video").forEach(v => {
           v.pause();
         });
       }
@@ -75,6 +102,7 @@
       if (visible && !observed) {
         observer.observe(card);
         card.dataset.observed = 'true';
+        applyPlaybackForCard(card);
         return;
       }
 
