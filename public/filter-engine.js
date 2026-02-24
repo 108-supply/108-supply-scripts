@@ -441,6 +441,8 @@
         });
   
         gridEl.querySelectorAll("video").forEach(v => {
+          const card = v.closest(".motion-template_card");
+          if (card && window.getComputedStyle(card).display === "none") return;
           if (v.dataset.lenisHooked === "1") return;
           v.dataset.lenisHooked = "1";
           v.addEventListener("loadedmetadata", refreshLenis, { once: true });

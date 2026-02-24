@@ -76,6 +76,10 @@
 
       if (v.classList.contains("video-light")) safeSync(p.dark, v);
       if (v.classList.contains("video-hover")) safeSync(p.dark, v);
+      if (v.classList.contains("video-dark") && isCardVisible(v) && isNearViewport(v) && v.paused) {
+        const play = v.play();
+        if (play && play.catch) play.catch(() => {});
+      }
     }, { once: true });
 
     v.load();
@@ -124,6 +128,12 @@
     return cs.display !== "none" && cs.visibility !== "hidden";
   }
 
+  function isNearViewport(node) {
+    const card = node.closest(".motion-template_card") || node;
+    const r = card.getBoundingClientRect();
+    return r.bottom > -120 && r.top < window.innerHeight + 120;
+  }
+
   function sourceAttr(v) {
     return ensureSource(v).getAttribute("src") || "";
   }
@@ -160,6 +170,10 @@
 
       // when card becomes visible (load more), attach/load dark if it was detached
       if (dark.dataset.src && !sourceAttr(dark)) loadOne(dark);
+      if (dark.dataset.loaded === "1" && dark.paused && isNearViewport(card)) {
+        const play = dark.play();
+        if (play && play.catch) play.catch(() => {});
+      }
     });
   }
 
