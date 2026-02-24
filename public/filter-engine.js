@@ -110,13 +110,6 @@
   window.BYQGrid.refreshVideoObserver = syncObservedCards;
   window.BYQGrid.kickVisiblePlayback = kickVisiblePlayback;
 
-  // Safari/Chrome recovery: some muted videos may stay paused after ready events.
-  // Gentle periodic kick for visible observed cards.
-  setInterval(() => {
-    if (document.hidden) return;
-    kickVisiblePlayback();
-  }, 700);
-
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) kickVisiblePlayback();
   });

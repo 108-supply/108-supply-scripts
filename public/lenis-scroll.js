@@ -34,17 +34,17 @@
   // Debounced Lenis resize for heavy layout mutations (videos/images/load-more).
   window._108RefreshLenis = function () {
     if (!window.lenis || typeof window.lenis.resize !== 'function') return;
-    if (resizeRaf) return;
-
-    resizeRaf = requestAnimationFrame(() => {
-      resizeRaf = 0;
-      try { window.lenis.resize(); } catch (e) {}
-    });
-
+    if (!resizeRaf) {
+      resizeRaf = requestAnimationFrame(() => {
+        resizeRaf = 0;
+        try { window.lenis.resize(); } catch (e) {}
+      });
+    }
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => {
       try { window.lenis.resize(); } catch (e) {}
-    }, 80);
+      resizeTimer = 0;
+    }, 180);
   };
 
   // 4) Base scroll (Lenis-first)
