@@ -185,9 +185,9 @@
       }
     });
 
-    if (typeof window.BYQGrid?.kickVisiblePlayback === "function") {
-      window.BYQGrid.kickVisiblePlayback();
-      setTimeout(() => window.BYQGrid.kickVisiblePlayback(), 120);
+    if (typeof window._108Grid?.kickVisiblePlayback === "function") {
+      window._108Grid.kickVisiblePlayback();
+      setTimeout(() => window._108Grid.kickVisiblePlayback(), 120);
     }
   }
 
@@ -330,7 +330,7 @@
       tries++;
       const cards = document.querySelectorAll(".motion-template_card");
       const hasHidden = Array.from(cards).some(c => window.getComputedStyle(c).display === "none");
-      const gridReady = !!window.BYQGrid?.engine;
+      const gridReady = !!window._108Grid?.engine;
 
       if (hasHidden || gridReady || tries >= 20) {
         refreshProductVideoLoading();
@@ -344,9 +344,9 @@
     requestAnimationFrame(boot);
   }
 
-  window.BYQGrid = window.BYQGrid || {};
-  window.BYQGrid.refreshLightVideoObserver = refreshObservedLightVideos;
-  window.BYQGrid.refreshProductVideoLoading = refreshProductVideoLoading;
+  window._108Grid = window._108Grid || {};
+  window._108Grid.refreshLightVideoObserver = refreshObservedLightVideos;
+  window._108Grid.refreshProductVideoLoading = refreshProductVideoLoading;
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", init);
