@@ -3,6 +3,339 @@
   const inLight = () => document.body.classList.contains(LIGHT_CLASS);
 
   const queue = new Set();
+  const syncIntervals = new WeakMap();
+  const hoverHideTimers = new WeakMap();
+  let scheduled = false;
+  let visibleSyncTimer = 0;
+
+  const SYNC = {
+    hardSeek: 0.2,
+    softSeek: 0.045,
+    maxRateOffset: 0.06
+  };
+
+  function ensureSource(v) {
+    return v.querySelector("source") || (() => {
+      const ns = document.createElement("source");
+      ns.type = "video/mp4";
+      v.appendChild(ns);
+      return ns;
+    })();
+  }
+
+  function getPairFromNode(node) {
+    const pair = node.closest(".video-pair");
+    if (!pair) return null;
+    const dark = pair.querySelector("video.video-dark");
+    const light = pair.querySelector("video.video-light");
+    const hover = pair.querySelector("video.video-hover");
+    if (!dark) return null;
+    return { pair, dark, light, hover };
+  }
+
+  function isVisible(el) {
+    const r = el.getBoundingClientRect();
+    return r.bottom > -100 && r.top < window.innerHeight + 100;
+  }
+
+  function normalizeTime(video, t) {
+    const d = video.duration;
+    if (!Number.isFinite(d) || d <= 0) return Math.max(0, t);
+    const n = t % d;
+    return n < 0 ? n + d : n;
+  }
+
+  function syncToMaster(master, target) {
+    if (!master || !target) return;
+    if (master.readyState < 2 || target.readyState < 2) return;
+
+    const targetTime = normalizeTime(target, master.currentTime || 0);
+    const drift = targetTime - (target.currentTime || 0);
+    const absDrift = Math.abs(drift);
+
+    if (absDrift > SYNC.hardSeek) {
+      try { target.currentTime = targetTime; } catch (e) {}
+    } else if (absDrift > SYNC.softSeek && !target.paused) {
+      const offset = Math.max(-SYNC.maxRateOffset, Math.min(SYNC.maxRateOffset, drift * 0.7));
+      target.playbackRate = Math.max(0.5, Math.min(2, 1 + offset));
+    } else if (Math.abs((target.playbackRate || 1) - 1) > 0.01) {
+      target.playbackRate = 1;
+    }
+  }
+
+  function loadOne(v) {
+    if (!v) return;
+    if (v.dataset.loaded === "1") return;
+    const src = v.dataset.src;
+    if (!src) return;
+
+    const s = ensureSource(v);
+    s.src = src;
+
+    v.addEventListener("loadeddata", () => {
+      v.dataset.loaded = "1";
+      v.setAttribute("data-loaded", "1");
+
+      const ref = getPairFromNode(v);
+      if (!ref) return;
+      if (v.classList.contains("video-light")) {
+        syncToMaster(ref.dark, v);
+      } else if (v.classList.contains("video-hover")) {
+        syncToMaster(ref.dark, v);
+      }
+    }, { once: true });
+
+    v.load();
+  }
+
+  // ---------- LIGHT LAZY QUEUE ----------
+
+  function flushQueue() {
+    scheduled = false;
+    if (!inLight()) return;
+
+    let n = 0;
+    for (const v of queue) {
+      queue.delete(v);
+      loadOne(v);
+      n++;
+      if (n >= 6) break;
+    }
+    if (queue.size) scheduleFlush();
+  }
+
+  function scheduleFlush() {
+    if (scheduled) return;
+    scheduled = true;
+    if ("requestIdleCallback" in window) {
+      requestIdleCallback(flushQueue, { timeout: 250 });
+    } else {
+      setTimeout(flushQueue, 60);
+    }
+  }
+
+  const io = new IntersectionObserver((entries) => {
+    if (!inLight()) return;
+    for (const e of entries) {
+      if (!e.isIntersecting) continue;
+      queue.add(e.target);
+    }
+    scheduleFlush();
+  }, { root: null, threshold: 0.15 });
+
+  function observeAllLightVideos() {
+    document.querySelectorAll("video.video-light").forEach(v => {
+      if (v.dataset.lightObserved === "1") return;
+      v.dataset.lightObserved = "1";
+      io.observe(v);
+    });
+  }
+
+  function syncVisiblePairs() {
+    document.querySelectorAll(".video-pair").forEach(pair => {
+      if (!isVisible(pair)) return;
+      const dark = pair.querySelector("video.video-dark");
+      const light = pair.querySelector("video.video-light");
+      if (!dark || !light || light.dataset.loaded !== "1") return;
+      syncToMaster(dark, light);
+    });
+  }
+
+  function onThemeChange() {
+    if (!inLight()) return;
+    document.querySelectorAll("video.video-light").forEach(v => {
+      if (!isVisible(v)) return;
+      queue.add(v);
+    });
+    scheduleFlush();
+    setTimeout(syncVisiblePairs, 120);
+    setTimeout(syncVisiblePairs, 420);
+  }
+
+  // ---------- HOVER ----------
+
+  function setHoverVisible(hoverVideo, visible) {
+    hoverVideo.style.visibility = visible ? "visible" : "hidden";
+    hoverVideo.style.opacity = visible ? "1" : "0";
+  }
+
+  function stopHoverSync(pair) {
+    const id = syncIntervals.get(pair);
+    if (id) {
+      clearInterval(id);
+      syncIntervals.delete(pair);
+    }
+  }
+
+  function startHoverSync(pair) {
+    stopHoverSync(pair);
+    const id = setInterval(() => {
+      const hover = pair.querySelector("video.video-hover");
+      const dark = pair.querySelector("video.video-dark");
+      if (!hover || !dark) return;
+      if (hover.style.opacity !== "1") return;
+      if (dark.readyState < 2 || hover.readyState < 2) return;
+      syncToMaster(dark, hover);
+    }, 80);
+    syncIntervals.set(pair, id);
+  }
+
+  function clearHoverHideTimer(hoverVideo) {
+    const t = hoverHideTimers.get(hoverVideo);
+    if (t) {
+      clearTimeout(t);
+      hoverHideTimers.delete(hoverVideo);
+    }
+  }
+
+  function showHover(pair, hoverVideo) {
+    clearHoverHideTimer(hoverVideo);
+    pair.dataset.hoverActive = "1";
+
+    const start = () => {
+      if (!pair.isConnected) return;
+      if (pair.dataset.hoverActive !== "1") return;
+      syncToMaster(pair.querySelector("video.video-dark"), hoverVideo);
+      setHoverVisible(hoverVideo, true);
+      const p = hoverVideo.play();
+      if (p && p.catch) p.catch(() => {});
+      startHoverSync(pair);
+    };
+
+    if (hoverVideo.dataset.loaded !== "1") {
+      loadOne(hoverVideo);
+      hoverVideo.addEventListener("loadeddata", start, { once: true });
+    } else {
+      start();
+    }
+  }
+
+  function hideHover(pair, hoverVideo) {
+    pair.dataset.hoverActive = "0";
+    clearHoverHideTimer(hoverVideo);
+    setHoverVisible(hoverVideo, false);
+    stopHoverSync(pair);
+
+    const timer = setTimeout(() => {
+      if (pair.dataset.hoverActive === "1") return;
+      hoverVideo.pause();
+      hoverVideo.playbackRate = 1;
+      hoverHideTimers.delete(hoverVideo);
+    }, 200);
+    hoverHideTimers.set(hoverVideo, timer);
+  }
+
+  function initCards() {
+    document.querySelectorAll(".motion-template_card").forEach(card => {
+      const pair = card.querySelector(".video-pair");
+      if (!pair) return;
+
+      const hoverVideo = pair.querySelector("video.video-hover");
+      if (!hoverVideo) return;
+
+      Object.assign(hoverVideo.style, {
+        position: "absolute",
+        inset: "0",
+        width: "100%",
+        height: "100%",
+        objectFit: "cover",
+        display: "block",
+        opacity: "0",
+        visibility: "hidden",
+        transition: "opacity 0.2s ease",
+        zIndex: "2",
+        pointerEvents: "none",
+        transform: "translateZ(0)",
+        backfaceVisibility: "hidden",
+        willChange: "opacity"
+      });
+
+      pair.style.position = "relative";
+      pair.style.overflow = "hidden";
+      setHoverVisible(hoverVideo, false);
+      pair.dataset.hoverActive = "0";
+
+      if (card.dataset.hoverCardInit !== "1") {
+        card.dataset.hoverCardInit = "1";
+        card.addEventListener("mouseenter", () => showHover(pair, hoverVideo));
+        card.addEventListener("mouseleave", () => hideHover(pair, hoverVideo));
+      }
+    });
+  }
+
+  // ---------- MOBILE TOGGLE ----------
+
+  function initMobileToggle() {
+    document.querySelectorAll(".show-examples-btn").forEach(btn => {
+      if (btn.dataset.mobileHoverInit === "1") return;
+      btn.dataset.mobileHoverInit = "1";
+
+      btn.addEventListener("click", () => {
+        const card = btn.closest(".motion-template_card");
+        if (!card) return;
+
+        const pair = card.querySelector(".video-pair");
+        if (!pair) return;
+
+        const hoverVideo = pair.querySelector("video.video-hover");
+        if (!hoverVideo) return;
+
+        const isActive = card.classList.contains("hover-active");
+
+        if (!isActive) {
+          card.classList.add("hover-active");
+          btn.textContent = "Hide examples";
+          showHover(pair, hoverVideo);
+        } else {
+          card.classList.remove("hover-active");
+          btn.textContent = "Show examples";
+          hideHover(pair, hoverVideo);
+        }
+      });
+    });
+  }
+
+  function ensureVisibleSyncLoop() {
+    if (visibleSyncTimer) return;
+    visibleSyncTimer = setInterval(() => {
+      if (document.hidden) return;
+      syncVisiblePairs();
+    }, 260);
+  }
+
+  // ---------- INIT ----------
+
+  function init() {
+    observeAllLightVideos();
+    onThemeChange();
+    initCards();
+    initMobileToggle();
+    ensureVisibleSyncLoop();
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
+  } else {
+    init();
+  }
+
+  new MutationObserver(onThemeChange)
+    .observe(document.body, { attributes: true, attributeFilter: ["class"] });
+
+  // re-init after new cards are added (load more / CMS updates)
+  new MutationObserver(() => {
+    observeAllLightVideos();
+    onThemeChange();
+    initCards();
+    initMobileToggle();
+    ensureVisibleSyncLoop();
+  }).observe(document.documentElement, { childList: true, subtree: true });
+})();
+(() => {
+  const LIGHT_CLASS = "is-base";
+  const inLight = () => document.body.classList.contains(LIGHT_CLASS);
+
+  const queue = new Set();
   let scheduled = false;
   const pairStates = new WeakMap();
   const trackedPairs = new Set();
@@ -92,6 +425,8 @@
   }
 
   function pickMasterVideo(state) {
+    const playing = [state.dark, state.light, state.hover].find(v => v && v.readyState >= 2 && !v.paused);
+    if (playing) return playing;
     if (state.dark && state.dark.readyState >= 2) return state.dark;
     if (state.light && state.light.readyState >= 2) return state.light;
     if (state.hover && state.hover.readyState >= 2) return state.hover;
@@ -199,6 +534,11 @@
     return n;
   }
 
+  function setHoverVisible(hoverVideo, visible) {
+    hoverVideo.style.visibility = visible ? "visible" : "hidden";
+    hoverVideo.style.opacity = visible ? "1" : "0";
+  }
+
   function syncVisiblePairs() {
     document.querySelectorAll(".video-pair").forEach(pair => {
       if (!isInViewport(pair)) return;
@@ -292,18 +632,16 @@
     if (state) state.hoverActive = true;
     clearHoverHideTimer(hoverVideo);
     const myToken = bumpHoverToken(hoverVideo);
-    hoverVideo.style.opacity = "1";
 
     const startHover = () => {
       const s = getOrCreatePairState(pair);
       if (!s) return;
       if (!s.hoverActive) return;
       if ((hoverTokens.get(hoverVideo) || 0) !== myToken) return;
+      setHoverVisible(hoverVideo, true);
       syncPair(s);
-      if (!s.clock.paused) {
-        const p = hoverVideo.play();
-        if (p && p.catch) p.catch(() => {});
-      }
+      const p = hoverVideo.play();
+      if (p && p.catch) p.catch(() => {});
     };
 
     // lazy load on first hover
@@ -322,7 +660,7 @@
     bumpHoverToken(hoverVideo);
     clearHoverHideTimer(hoverVideo);
 
-    hoverVideo.style.opacity = "0";
+    setHoverVisible(hoverVideo, false);
     // Keep currentTime to avoid jump-cut glitch on next hover.
     const timer = setTimeout(() => {
       const p = hoverVideo.closest(".video-pair");
@@ -355,12 +693,18 @@
         height: "100%",
         objectFit: "cover",
         opacity: "0",
+        visibility: "hidden",
         transition: "opacity 0.2s ease",
         zIndex: "2",
         pointerEvents: "none",
         transform: "translateZ(0)",
-        backfaceVisibility: "hidden"
+        backfaceVisibility: "hidden",
+        willChange: "opacity"
       });
+
+      if (!card.classList.contains("hover-active")) {
+        setHoverVisible(hoverVideo, false);
+      }
 
       // upewnij się że .video-pair ma position relative
       pair.style.position = "relative";
