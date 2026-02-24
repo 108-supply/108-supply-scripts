@@ -27,6 +27,14 @@
     return { pair, dark, light, hover };
   }
 
+  function getReferenceVideo(pair) {
+    if (!pair) return null;
+    const dark = pair.querySelector("video.video-dark");
+    const light = pair.querySelector("video.video-light");
+    if (inLight() && light && light.dataset.loaded === "1" && light.readyState >= 2) return light;
+    return dark;
+  }
+
   function safeSync(reference, target) {
     if (!reference || !target) return;
     if (reference.readyState < 2 || target.readyState < 2) return;
@@ -52,10 +60,11 @@
       const dark = pair.querySelector("video.video-dark");
       const light = pair.querySelector("video.video-light");
       const hover = pair.querySelector("video.video-hover");
+      const ref = getReferenceVideo(pair);
 
-      if (!dark) return;
-      if (light && light.dataset.loaded === "1") safeSync(dark, light);
-      if (hover && hover.dataset.loaded === "1") safeSync(dark, hover);
+      if (!ref) return;
+      if (light && light.dataset.loaded === "1" && ref !== light) safeSync(ref, light);
+      if (hover && hover.dataset.loaded === "1") safeSync(ref, hover);
     });
   }
 
@@ -216,14 +225,14 @@
     if (hoverVideo.dataset.loaded !== "1") {
       loadOne(hoverVideo);
       hoverVideo.addEventListener("loadeddata", () => {
-        const dark = pair.querySelector("video.video-dark");
-        safeSync(dark, hoverVideo);
+        const ref = getReferenceVideo(pair);
+        safeSync(ref, hoverVideo);
         const p = hoverVideo.play();
         if (p && p.catch) p.catch(() => {});
       }, { once: true });
     } else {
-      const dark = pair.querySelector("video.video-dark");
-      safeSync(dark, hoverVideo);
+      const ref = getReferenceVideo(pair);
+      safeSync(ref, hoverVideo);
       const p = hoverVideo.play();
       if (p && p.catch) p.catch(() => {});
     }

@@ -21,13 +21,11 @@
 
     if (isHoverVisible(card)) {
       if (hover) run.add(hover);
-      if (dark) run.add(dark); // keep dark clock for smoother sync handoff
       return run;
     }
 
     if (inLight() && light && light.dataset.loaded === "1") {
       run.add(light);
-      if (dark) run.add(dark);
       return run;
     }
 
