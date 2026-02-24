@@ -120,7 +120,8 @@
   function isCardVisible(node) {
     const card = node.closest(".motion-template_card");
     if (!card) return true;
-    return window.getComputedStyle(card).display !== "none";
+    const cs = window.getComputedStyle(card);
+    return cs.display !== "none" && cs.visibility !== "hidden";
   }
 
   function sourceAttr(v) {
@@ -292,15 +293,27 @@
   // ---------- INIT ----------
 
   function init() {
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
+    initCards();
+    initMobileToggle();
+
+    // Wait until grid pagination/filter scripts settle visibility state.
+    let tries = 0;
+    const boot = () => {
+      tries++;
+      const cards = document.querySelectorAll(".motion-template_card");
+      const hasHidden = Array.from(cards).some(c => window.getComputedStyle(c).display === "none");
+      const gridReady = !!window.BYQGrid?.engine;
+
+      if (hasHidden || gridReady || tries >= 20) {
         refreshProductVideoLoading();
         refreshObservedLightVideos();
         onThemeChange();
-      });
-    });
-    initCards();
-    initMobileToggle();
+        return;
+      }
+
+      requestAnimationFrame(boot);
+    };
+    requestAnimationFrame(boot);
   }
 
   window.BYQGrid = window.BYQGrid || {};
