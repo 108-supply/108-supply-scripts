@@ -185,6 +185,9 @@
         if (typeof window.BYQGrid?.refreshVideoObserver === "function") {
           window.BYQGrid.refreshVideoObserver();
         }
+        if (typeof window.BYQGrid?.refreshLightVideoObserver === "function") {
+          window.BYQGrid.refreshLightVideoObserver();
+        }
   
         return { entering, staying };
       }
@@ -269,6 +272,9 @@
 
       if (typeof window.BYQGrid?.refreshVideoObserver === "function") {
         window.BYQGrid.refreshVideoObserver();
+      }
+      if (typeof window.BYQGrid?.refreshLightVideoObserver === "function") {
+        window.BYQGrid.refreshLightVideoObserver();
       }
   
       E.syncFilterActiveFromChecked();

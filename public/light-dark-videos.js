@@ -1,7 +1,4 @@
 (() => {
-  if (window.__BYQ_LIGHT_DARK_VIDEOS_INIT__) return;
-  window.__BYQ_LIGHT_DARK_VIDEOS_INIT__ = true;
-
   const LIGHT_CLASS = "is-base";
   const inLight = () => document.body.classList.contains(LIGHT_CLASS);
 
@@ -113,18 +110,41 @@
     if (!inLight()) return;
     for (const e of entries) {
       if (!e.isIntersecting) continue;
+      if (!isCardVisible(e.target)) continue;
       queue.add(e.target);
     }
     scheduleFlush();
   }, { root: null, threshold: 0.15 });
 
-  function observeAll() {
-    document.querySelectorAll("video.video-light").forEach(v => io.observe(v));
+  function isCardVisible(node) {
+    const card = node.closest(".motion-template_card");
+    if (!card) return true;
+    return window.getComputedStyle(card).display !== "none";
+  }
+
+  function refreshObservedLightVideos() {
+    document.querySelectorAll("video.video-light").forEach(v => {
+      const observed = v.dataset.lightObserved === "1";
+      const visible = isCardVisible(v);
+
+      if (visible && !observed) {
+        io.observe(v);
+        v.dataset.lightObserved = "1";
+        return;
+      }
+
+      if (!visible && observed) {
+        io.unobserve(v);
+        delete v.dataset.lightObserved;
+        queue.delete(v);
+      }
+    });
   }
 
   function onThemeChange() {
     if (!inLight()) return;
     document.querySelectorAll("video.video-light").forEach(v => {
+      if (!isCardVisible(v)) return;
       const r = v.getBoundingClientRect();
       if (r.bottom > 0 && r.top < window.innerHeight) queue.add(v);
     });
@@ -226,11 +246,18 @@
   // ---------- INIT ----------
 
   function init() {
-    observeAll();
-    onThemeChange();
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        refreshObservedLightVideos();
+        onThemeChange();
+      });
+    });
     initCards();
     initMobileToggle();
   }
+
+  window.BYQGrid = window.BYQGrid || {};
+  window.BYQGrid.refreshLightVideoObserver = refreshObservedLightVideos;
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", init);
@@ -243,7 +270,7 @@
 
   // re-init po załadowaniu nowych kart (infinite scroll / CMS load more)
   new MutationObserver(() => {
-    observeAll();
+    refreshObservedLightVideos();
     onThemeChange();
     initCards();
     initMobileToggle();
