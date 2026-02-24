@@ -106,22 +106,7 @@
       catch { return []; }
     };
     const setCart = (c) => localStorage.setItem(CFG.LS_KEY, JSON.stringify(c));
-    const priceNum = (p) => {
-      const cleaned = String(p ?? '0')
-        .replace(/[^\d,.-]/g, '')
-        .replace(',', '.');
-      const n = parseFloat(cleaned);
-      return Number.isFinite(n) ? n : 0;
-    };
-    const formatPrice = (p) => `€${priceNum(p).toFixed(0)}`;
-    const toEuroDisplay = (p) => {
-      const raw = String(p ?? '').trim();
-      if (!raw) return formatPrice(0);
-      if (raw.includes('€')) return raw;
-      if (raw.includes('$')) return raw.replace(/\$/g, '€');
-      if (/\bUSD\b/i.test(raw)) return raw.replace(/\bUSD\b/gi, '€');
-      return formatPrice(raw);
-    };
+    const priceNum = (p) => parseFloat(String(p||'0').replace('$','')) || 0;
 
     function updateBadge() {
       if (badgeEl) badgeEl.textContent = getCart().length;
@@ -130,7 +115,7 @@
     function updateTotal() {
       if (!totalEl) return;
       const total = getCart().reduce((a,it)=>a+priceNum(it.price),0);
-      totalEl.textContent = formatPrice(total);
+      totalEl.textContent = '$' + total.toFixed(0);
     }
 
     function clearAnimations(el) {
@@ -447,7 +432,7 @@
         wrapper.innerHTML = '';
         if (cart.length === 0) {
           wrapper.style.display = 'none';
-          if (totalEl) totalEl.textContent = formatPrice(0);
+          if (totalEl) totalEl.textContent = '$0';
           updateBadge();
           setEmptyState(true);
           if (content) {
@@ -482,7 +467,7 @@
           const v = clone.querySelector('.cart-item_variant');
           if (v) v.textContent = item.variant ? (item.variant.charAt(0).toUpperCase() + item.variant.slice(1) + ' License') : 'License';
           const p = clone.querySelector('.cart-item_price');
-          if (p) p.textContent = toEuroDisplay(item.price);
+          if (p) p.textContent = item.price || '$0';
           const btn = clone.querySelector('.remove-button');
           if (btn) { btn.classList.add('cart-remove-btn'); btn.setAttribute('data-index', index); }
           wrapper.appendChild(clone);
@@ -784,8 +769,7 @@
       if (variantSelect && priceDisplay && addBtn) {
         function updateVariant() {
           const variant = variantSelect.value;
-          const rawPrice = window.productData.prices[variant];
-          const price = toEuroDisplay(rawPrice);
+          const price = window.productData.prices[variant];
           const paddleId = window.productData.paddleIds[variant];
           priceDisplay.textContent = price;
           addBtn.dataset.productName = window.productData.name;
