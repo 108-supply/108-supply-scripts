@@ -122,7 +122,47 @@
     return window.getComputedStyle(card).display !== "none";
   }
 
+  function sourceAttr(v) {
+    return ensureSource(v).getAttribute("src") || "";
+  }
+
+  function stashAsLazy(v) {
+    const s = ensureSource(v);
+    const src = s.getAttribute("src") || v.getAttribute("src") || "";
+    if (src && !v.dataset.src) v.dataset.src = src;
+    s.removeAttribute("src");
+    v.removeAttribute("src");
+    v.preload = "none";
+  }
+
+  function refreshProductVideoLoading() {
+    document.querySelectorAll(".motion-template_card").forEach(card => {
+      const visible = isCardVisible(card);
+      const dark = card.querySelector("video.video-dark");
+      const light = card.querySelector("video.video-light");
+      const hover = card.querySelector("video.video-hover");
+
+      // light + hover should always stay lazy until needed
+      if (light && sourceAttr(light)) stashAsLazy(light);
+      if (hover && sourceAttr(hover)) stashAsLazy(hover);
+
+      if (!dark) return;
+
+      if (!visible) {
+        // hidden cards should not keep eager dark sources attached
+        if (sourceAttr(dark) && dark.dataset.loaded !== "1") stashAsLazy(dark);
+        try { dark.pause(); } catch (e) {}
+        if (light) queue.delete(light);
+        return;
+      }
+
+      // when card becomes visible (load more), attach/load dark if it was detached
+      if (dark.dataset.src && !sourceAttr(dark)) loadOne(dark);
+    });
+  }
+
   function refreshObservedLightVideos() {
+    refreshProductVideoLoading();
     document.querySelectorAll("video.video-light").forEach(v => {
       const observed = v.dataset.lightObserved === "1";
       const visible = isCardVisible(v);
@@ -248,6 +288,7 @@
   function init() {
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
+        refreshProductVideoLoading();
         refreshObservedLightVideos();
         onThemeChange();
       });
@@ -258,6 +299,7 @@
 
   window.BYQGrid = window.BYQGrid || {};
   window.BYQGrid.refreshLightVideoObserver = refreshObservedLightVideos;
+  window.BYQGrid.refreshProductVideoLoading = refreshProductVideoLoading;
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", init);
@@ -270,6 +312,7 @@
 
   // re-init po załadowaniu nowych kart (infinite scroll / CMS load more)
   new MutationObserver(() => {
+    refreshProductVideoLoading();
     refreshObservedLightVideos();
     onThemeChange();
     initCards();

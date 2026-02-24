@@ -188,6 +188,9 @@
         if (typeof window.BYQGrid?.refreshLightVideoObserver === "function") {
           window.BYQGrid.refreshLightVideoObserver();
         }
+        if (typeof window.BYQGrid?.refreshProductVideoLoading === "function") {
+          window.BYQGrid.refreshProductVideoLoading();
+        }
   
         return { entering, staying };
       }
@@ -275,6 +278,9 @@
       }
       if (typeof window.BYQGrid?.refreshLightVideoObserver === "function") {
         window.BYQGrid.refreshLightVideoObserver();
+      }
+      if (typeof window.BYQGrid?.refreshProductVideoLoading === "function") {
+        window.BYQGrid.refreshProductVideoLoading();
       }
   
       E.syncFilterActiveFromChecked();
