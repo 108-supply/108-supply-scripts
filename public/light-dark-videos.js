@@ -4,6 +4,7 @@
 
   const queue = new Set();
   let scheduled = false;
+  let mutationTick = 0;
 
   const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
 
@@ -142,9 +143,9 @@
       const light = card.querySelector("video.video-light");
       const hover = card.querySelector("video.video-hover");
 
-      // light + hover should always stay lazy until needed
-      if (light && sourceAttr(light)) stashAsLazy(light);
-      if (hover && sourceAttr(hover)) stashAsLazy(hover);
+      // keep light/hover lazy until explicitly loaded for visible interactions
+      if (light && sourceAttr(light) && light.dataset.loaded !== "1") stashAsLazy(light);
+      if (hover && sourceAttr(hover) && hover.dataset.loaded !== "1") stashAsLazy(hover);
 
       if (!dark) return;
 
@@ -220,12 +221,14 @@
     // poczekaj na fade out zanim pauzujesz
     setTimeout(() => {
       hoverVideo.pause();
-      hoverVideo.currentTime = 0;
     }, 200);
   }
 
   function initCards() {
     document.querySelectorAll(".motion-template_card").forEach(card => {
+      if (card.dataset.hoverInit === "1") return;
+      card.dataset.hoverInit = "1";
+
       const pair = card.querySelector(".video-pair");
       if (!pair) return;
 
@@ -258,6 +261,9 @@
 
   function initMobileToggle() {
     document.querySelectorAll(".show-examples-btn").forEach(btn => {
+      if (btn.dataset.mobileHoverInit === "1") return;
+      btn.dataset.mobileHoverInit = "1";
+
       btn.addEventListener("click", () => {
         const card = btn.closest(".motion-template_card");
         if (!card) return;
@@ -312,11 +318,15 @@
 
   // re-init po załadowaniu nowych kart (infinite scroll / CMS load more)
   new MutationObserver(() => {
-    refreshProductVideoLoading();
-    refreshObservedLightVideos();
-    onThemeChange();
-    initCards();
-    initMobileToggle();
+    if (mutationTick) return;
+    mutationTick = requestAnimationFrame(() => {
+      mutationTick = 0;
+      refreshProductVideoLoading();
+      refreshObservedLightVideos();
+      onThemeChange();
+      initCards();
+      initMobileToggle();
+    });
   }).observe(document.documentElement, { childList: true, subtree: true });
 
 })();

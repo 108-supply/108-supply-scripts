@@ -4,17 +4,50 @@
 // Nie ingeruje w Twój is-base system
 // ========================================
 (() => {
+  const inLight = () => document.body.classList.contains("is-base");
+
+  function isHoverVisible(card) {
+    const hover = card.querySelector("video.video-hover");
+    if (!hover || hover.dataset.loaded !== "1") return false;
+    const op = parseFloat(hover.style.opacity || "0");
+    return op > 0.01 || card.classList.contains("hover-active");
+  }
+
+  function videosToRun(card) {
+    const dark = card.querySelector("video.video-dark");
+    const light = card.querySelector("video.video-light");
+    const hover = card.querySelector("video.video-hover");
+    const run = new Set();
+
+    if (isHoverVisible(card)) {
+      if (hover) run.add(hover);
+      if (dark) run.add(dark); // keep dark clock for smoother sync handoff
+      return run;
+    }
+
+    if (inLight() && light && light.dataset.loaded === "1") {
+      run.add(light);
+      if (dark) run.add(dark);
+      return run;
+    }
+
+    if (dark) run.add(dark);
+    return run;
+  }
+
   const observer = new IntersectionObserver((entries) => {
     entries.forEach(entry => {
       const card = entry.target;
       const videos = card.querySelectorAll('video');
       
       if (entry.isIntersecting) {
-        // Card w viewport - odtwarzaj
+        const run = videosToRun(card);
         videos.forEach(v => {
-          if (v.paused && v.readyState >= 2) {
+          if (run.has(v) && v.paused && v.readyState >= 2) {
             v.play().catch(() => {});
+            return;
           }
+          v.pause();
         });
       } else {
         // Card poza viewport - pauzuj (oszczędność CPU)
@@ -369,6 +402,8 @@
         if (!gridEl) return;
   
         gridEl.querySelectorAll("img").forEach(img => {
+          if (img.dataset.lenisHooked === "1") return;
+          img.dataset.lenisHooked = "1";
           if (!img.complete) {
             img.addEventListener("load", refreshLenis, { once: true });
             img.addEventListener("error", refreshLenis, { once: true });
@@ -376,6 +411,8 @@
         });
   
         gridEl.querySelectorAll("video").forEach(v => {
+          if (v.dataset.lenisHooked === "1") return;
+          v.dataset.lenisHooked = "1";
           v.addEventListener("loadedmetadata", refreshLenis, { once: true });
           v.addEventListener("loadeddata", refreshLenis, { once: true });
         });
