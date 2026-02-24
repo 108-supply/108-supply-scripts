@@ -385,14 +385,14 @@
   
       // ✅ LENIS FIX: recalc scroll limits after ANY layout changes
       function refreshLenis() {
+        if (typeof window._108RefreshLenis === "function") {
+          window._108RefreshLenis();
+          return;
+        }
         if (window.lenis && typeof window.lenis.resize === "function") {
           requestAnimationFrame(() => {
-            requestAnimationFrame(() => window.lenis.resize());
+            try { window.lenis.resize(); } catch (e) {}
           });
-          // Safari/delayed reflow safety net
-          setTimeout(() => {
-            try { window.lenis.resize(); } catch(e) {}
-          }, 60);
         }
       }
   
