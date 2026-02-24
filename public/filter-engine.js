@@ -28,25 +28,45 @@
     threshold: 0.01
   });
 
-  function observeAllCards() {
+  function isCardVisible(card) {
+    return window.getComputedStyle(card).display !== "none";
+  }
+
+  function syncObservedCards() {
     document.querySelectorAll('.motion-template_card').forEach(card => {
-      if (!card.dataset.observed) {
+      const observed = card.dataset.observed === "true";
+      const visible = isCardVisible(card);
+
+      if (visible && !observed) {
         observer.observe(card);
         card.dataset.observed = 'true';
+        return;
       }
+
+      if (!visible && observed) {
+        observer.unobserve(card);
+        delete card.dataset.observed;
+        card.querySelectorAll("video").forEach(v => v.pause());
+      }
+    });
+  }
+
+  function deferredSync() {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(syncObservedCards);
     });
   }
 
   // Init
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', observeAllCards);
+    document.addEventListener('DOMContentLoaded', deferredSync);
   } else {
-    observeAllCards();
+    deferredSync();
   }
 
   // Re-observe after filter/load more
   window.BYQGrid = window.BYQGrid || {};
-  window.BYQGrid.refreshVideoObserver = observeAllCards;
+  window.BYQGrid.refreshVideoObserver = syncObservedCards;
 
   console.log('[VideoViewport] Initialized - videos pause when off-screen');
 })();
@@ -161,6 +181,10 @@
         if (loadMoreBtn) {
           loadMoreBtn.style.display = (limit < filteredList().length) ? "" : "none";
         }
+
+        if (typeof window.BYQGrid?.refreshVideoObserver === "function") {
+          window.BYQGrid.refreshVideoObserver();
+        }
   
         return { entering, staying };
       }
@@ -241,6 +265,10 @@
       const loadMoreBtn = document.querySelector(E.CONFIG.selectors.loadMoreBtn);
       if (loadMoreBtn) {
         loadMoreBtn.style.display = (CONFIG.paging.initial < initList.length) ? "" : "none";
+      }
+
+      if (typeof window.BYQGrid?.refreshVideoObserver === "function") {
+        window.BYQGrid.refreshVideoObserver();
       }
   
       E.syncFilterActiveFromChecked();
