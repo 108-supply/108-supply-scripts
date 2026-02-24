@@ -6,7 +6,9 @@
   let scheduled = false;
   const pairStates = new WeakMap();
   const trackedPairs = new Set();
-  let syncRaf = 0;
+  const hoverHideTimers = new WeakMap();
+  const hoverTokens = new WeakMap();
+  let syncTimer = 0;
 
   const SYNC = {
     hardSeek: 0.18,
@@ -72,7 +74,7 @@
     [dark, light, hover].forEach(v => {
       if (!v || v.dataset.syncClockBound === "1") return;
       v.dataset.syncClockBound = "1";
-      ["loadeddata", "play", "pause", "ratechange", "seeking", "seeked", "timeupdate"].forEach(evt => {
+      ["loadeddata", "play", "pause", "ratechange", "seeking", "seeked"].forEach(evt => {
         v.addEventListener(evt, () => {
           const s = getOrCreatePairState(pair);
           if (!s) return;
@@ -165,9 +167,8 @@
   }
 
   function ensureSyncLoop() {
-    if (syncRaf) return;
-    const tick = () => {
-      syncRaf = requestAnimationFrame(tick);
+    if (syncTimer) return;
+    syncTimer = window.setInterval(() => {
       if (document.hidden) return;
 
       trackedPairs.forEach(pair => {
@@ -181,8 +182,21 @@
         if (!state.hoverActive && !isInViewport(pair)) return;
         syncPair(state);
       });
-    };
-    syncRaf = requestAnimationFrame(tick);
+    }, 120);
+  }
+
+  function clearHoverHideTimer(hoverVideo) {
+    const t = hoverHideTimers.get(hoverVideo);
+    if (t) {
+      clearTimeout(t);
+      hoverHideTimers.delete(hoverVideo);
+    }
+  }
+
+  function bumpHoverToken(hoverVideo) {
+    const n = (hoverTokens.get(hoverVideo) || 0) + 1;
+    hoverTokens.set(hoverVideo, n);
+    return n;
   }
 
   function syncVisiblePairs() {
@@ -276,16 +290,20 @@
   function showHover(pair, hoverVideo) {
     const state = getOrCreatePairState(pair);
     if (state) state.hoverActive = true;
+    clearHoverHideTimer(hoverVideo);
+    const myToken = bumpHoverToken(hoverVideo);
+    hoverVideo.style.opacity = "1";
 
     const startHover = () => {
       const s = getOrCreatePairState(pair);
       if (!s) return;
+      if (!s.hoverActive) return;
+      if ((hoverTokens.get(hoverVideo) || 0) !== myToken) return;
       syncPair(s);
       if (!s.clock.paused) {
         const p = hoverVideo.play();
         if (p && p.catch) p.catch(() => {});
       }
-      hoverVideo.style.opacity = "1";
     };
 
     // lazy load on first hover
@@ -301,13 +319,20 @@
     const pair = hoverVideo.closest(".video-pair");
     const state = pair ? getOrCreatePairState(pair) : null;
     if (state) state.hoverActive = false;
+    bumpHoverToken(hoverVideo);
+    clearHoverHideTimer(hoverVideo);
 
     hoverVideo.style.opacity = "0";
     // Keep currentTime to avoid jump-cut glitch on next hover.
-    setTimeout(() => {
+    const timer = setTimeout(() => {
+      const p = hoverVideo.closest(".video-pair");
+      const s = p ? getOrCreatePairState(p) : null;
+      if (s && s.hoverActive) return;
       hoverVideo.pause();
       hoverVideo.playbackRate = 1;
+      hoverHideTimers.delete(hoverVideo);
     }, 200);
+    hoverHideTimers.set(hoverVideo, timer);
   }
 
   function initCards() {
@@ -325,17 +350,21 @@
       Object.assign(hoverVideo.style, {
         position: "absolute",
         inset: "0",
+        display: "block",
         width: "100%",
         height: "100%",
         objectFit: "cover",
         opacity: "0",
         transition: "opacity 0.2s ease",
         zIndex: "2",
-        pointerEvents: "none"
+        pointerEvents: "none",
+        transform: "translateZ(0)",
+        backfaceVisibility: "hidden"
       });
 
       // upewnij się że .video-pair ma position relative
       pair.style.position = "relative";
+      pair.style.overflow = "hidden";
 
       // desktop hover
       card.addEventListener("mouseenter", () => showHover(pair, hoverVideo));
