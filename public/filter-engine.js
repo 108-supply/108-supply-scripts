@@ -4,54 +4,53 @@
 // Nie ingeruje w Twój is-base system
 // ========================================
 (() => {
-  const inLight = () => document.body.classList.contains("is-base");
-
-  function isHoverVisible(card) {
-    const hover = card.querySelector("video.video-hover");
-    if (!hover || hover.dataset.loaded !== "1") return false;
-    const op = parseFloat(hover.style.opacity || "0");
-    return op > 0.01 || card.classList.contains("hover-active");
+  function isCardInViewport(card) {
+    const r = card.getBoundingClientRect();
+    return r.bottom > -120 && r.top < window.innerHeight + 120;
   }
 
-  function videosToRun(card) {
+  function bindDarkPlayWhenReady(dark, card) {
+    if (!dark || dark.dataset.darkReadyBound === "1") return;
+    dark.dataset.darkReadyBound = "1";
+
+    const tryPlay = () => {
+      if (!isCardVisible(card)) return;
+      if (!isCardInViewport(card)) return;
+      if (dark.paused && dark.readyState >= 2) {
+        dark.play().catch(() => {});
+      }
+    };
+
+    dark.addEventListener("loadeddata", tryPlay);
+    dark.addEventListener("canplay", tryPlay);
+  }
+
+  function applyPlaybackForCard(card) {
     const dark = card.querySelector("video.video-dark");
-    const light = card.querySelector("video.video-light");
-    const hover = card.querySelector("video.video-hover");
-    const run = new Set();
-
-    if (isHoverVisible(card)) {
-      if (hover) run.add(hover);
-      if (dark) run.add(dark); // keep dark clock for smoother sync handoff
-      return run;
+    if (!dark) return;
+    bindDarkPlayWhenReady(dark, card);
+    if (dark.paused && dark.readyState >= 2) {
+      dark.play().catch(() => {});
     }
+  }
 
-    if (inLight() && light && light.dataset.loaded === "1") {
-      run.add(light);
-      if (dark) run.add(dark);
-      return run;
-    }
-
-    if (dark) run.add(dark);
-    return run;
+  function kickVisiblePlayback() {
+    document.querySelectorAll(".motion-template_card[data-observed='true']").forEach(card => {
+      if (!isCardVisible(card)) return;
+      if (!isCardInViewport(card)) return;
+      applyPlaybackForCard(card);
+    });
   }
 
   const observer = new IntersectionObserver((entries) => {
     entries.forEach(entry => {
       const card = entry.target;
-      const videos = card.querySelectorAll('video');
       
       if (entry.isIntersecting) {
-        const run = videosToRun(card);
-        videos.forEach(v => {
-          if (run.has(v) && v.paused && v.readyState >= 2) {
-            v.play().catch(() => {});
-            return;
-          }
-          v.pause();
-        });
+        applyPlaybackForCard(card);
       } else {
         // Card poza viewport - pauzuj (oszczędność CPU)
-        videos.forEach(v => {
+        card.querySelectorAll("video").forEach(v => {
           v.pause();
         });
       }
@@ -73,6 +72,7 @@
       if (visible && !observed) {
         observer.observe(card);
         card.dataset.observed = 'true';
+        applyPlaybackForCard(card);
         return;
       }
 
@@ -80,13 +80,21 @@
         observer.unobserve(card);
         delete card.dataset.observed;
         card.querySelectorAll("video").forEach(v => v.pause());
+        return;
+      }
+
+      if (visible) {
+        applyPlaybackForCard(card);
       }
     });
   }
 
   function deferredSync() {
     requestAnimationFrame(() => {
-      requestAnimationFrame(syncObservedCards);
+      requestAnimationFrame(() => {
+        syncObservedCards();
+        kickVisiblePlayback();
+      });
     });
   }
 
@@ -100,6 +108,18 @@
   // Re-observe after filter/load more
   window.BYQGrid = window.BYQGrid || {};
   window.BYQGrid.refreshVideoObserver = syncObservedCards;
+  window.BYQGrid.kickVisiblePlayback = kickVisiblePlayback;
+
+  // Safari/Chrome recovery: some muted videos may stay paused after ready events.
+  // Gentle periodic kick for visible observed cards.
+  setInterval(() => {
+    if (document.hidden) return;
+    kickVisiblePlayback();
+  }, 700);
+
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) kickVisiblePlayback();
+  });
 
   console.log('[VideoViewport] Initialized - videos pause when off-screen');
 })();
@@ -411,6 +431,8 @@
         });
   
         gridEl.querySelectorAll("video").forEach(v => {
+          const card = v.closest(".motion-template_card");
+          if (card && window.getComputedStyle(card).display === "none") return;
           if (v.dataset.lenisHooked === "1") return;
           v.dataset.lenisHooked = "1";
           v.addEventListener("loadedmetadata", refreshLenis, { once: true });

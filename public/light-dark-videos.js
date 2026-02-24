@@ -27,6 +27,14 @@
     return { pair, dark, light, hover };
   }
 
+  function getReferenceVideo(pair) {
+    if (!pair) return null;
+    const dark = pair.querySelector("video.video-dark");
+    const light = pair.querySelector("video.video-light");
+    if (inLight() && light && light.dataset.loaded === "1" && light.readyState >= 2) return light;
+    return dark;
+  }
+
   function safeSync(reference, target) {
     if (!reference || !target) return;
     if (reference.readyState < 2 || target.readyState < 2) return;
@@ -52,10 +60,11 @@
       const dark = pair.querySelector("video.video-dark");
       const light = pair.querySelector("video.video-light");
       const hover = pair.querySelector("video.video-hover");
+      const ref = getReferenceVideo(pair);
 
-      if (!dark) return;
-      if (light && light.dataset.loaded === "1") safeSync(dark, light);
-      if (hover && hover.dataset.loaded === "1") safeSync(dark, hover);
+      if (!ref) return;
+      if (light && light.dataset.loaded === "1" && ref !== light) safeSync(ref, light);
+      if (hover && hover.dataset.loaded === "1") safeSync(ref, hover);
     });
   }
 
@@ -76,6 +85,10 @@
 
       if (v.classList.contains("video-light")) safeSync(p.dark, v);
       if (v.classList.contains("video-hover")) safeSync(p.dark, v);
+      if (v.classList.contains("video-dark") && isCardVisible(v) && isNearViewport(v) && v.paused) {
+        const play = v.play();
+        if (play && play.catch) play.catch(() => {});
+      }
     }, { once: true });
 
     v.load();
@@ -124,6 +137,12 @@
     return cs.display !== "none" && cs.visibility !== "hidden";
   }
 
+  function isNearViewport(node) {
+    const card = node.closest(".motion-template_card") || node;
+    const r = card.getBoundingClientRect();
+    return r.bottom > -120 && r.top < window.innerHeight + 120;
+  }
+
   function sourceAttr(v) {
     return ensureSource(v).getAttribute("src") || "";
   }
@@ -160,7 +179,16 @@
 
       // when card becomes visible (load more), attach/load dark if it was detached
       if (dark.dataset.src && !sourceAttr(dark)) loadOne(dark);
+      if (dark.dataset.loaded === "1" && dark.paused && isNearViewport(card)) {
+        const play = dark.play();
+        if (play && play.catch) play.catch(() => {});
+      }
     });
+
+    if (typeof window.BYQGrid?.kickVisiblePlayback === "function") {
+      window.BYQGrid.kickVisiblePlayback();
+      setTimeout(() => window.BYQGrid.kickVisiblePlayback(), 120);
+    }
   }
 
   function refreshObservedLightVideos() {
@@ -202,14 +230,14 @@
     if (hoverVideo.dataset.loaded !== "1") {
       loadOne(hoverVideo);
       hoverVideo.addEventListener("loadeddata", () => {
-        const dark = pair.querySelector("video.video-dark");
-        safeSync(dark, hoverVideo);
+        const ref = getReferenceVideo(pair);
+        safeSync(ref, hoverVideo);
         const p = hoverVideo.play();
         if (p && p.catch) p.catch(() => {});
       }, { once: true });
     } else {
-      const dark = pair.querySelector("video.video-dark");
-      safeSync(dark, hoverVideo);
+      const ref = getReferenceVideo(pair);
+      safeSync(ref, hoverVideo);
       const p = hoverVideo.play();
       if (p && p.catch) p.catch(() => {});
     }

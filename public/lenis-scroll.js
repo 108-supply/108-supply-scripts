@@ -71,44 +71,15 @@
   };
 
   // 5) Sticky snap scroll:
-  // scroll -> then nudge so `.navigator` sits EXACTLY at top: var(--gap--80)
+  // scroll using sticky offset (no post-nudge to avoid micro-snaps)
   window._108ScrollToStickySnap = function (targetEl, opts = {}) {
     const behavior = opts.behavior || 'smooth';
     const duration = opts.duration ?? 1.05;
-
-    const nav = document.querySelector('.navigator');
-    if (!nav) {
-      // fallback if no sticky bar
-      return window._108ScrollTo(targetEl, { behavior, duration, offset: 0 });
-    }
-
-    // First pass scroll (no offset)
-    window._108ScrollTo(targetEl, { behavior, duration, offset: 0 });
-
-    // Nudge pass (precise)
-    let tries = 0;
-    function nudge() {
-      tries++;
-
-      const desiredTop = desiredNavigatorTop();
-      const rect = nav.getBoundingClientRect();
-
-      // Want nav top exactly on desiredTop
-      const delta = rect.top - desiredTop;
-
-      // close enough
-      if (Math.abs(delta) < 1 || tries >= 6) return;
-
-      // Move scroll by delta to force nav into exact sticky position
-      const targetY = window.scrollY + delta;
-
-      window._108ScrollTo(targetY, { behavior: 'auto', duration: 0, offset: 0 });
-
-      requestAnimationFrame(nudge);
-    }
-
-    // Start correction shortly after scroll begins
-    setTimeout(() => requestAnimationFrame(nudge), 50);
+    return window._108ScrollTo(targetEl, {
+      behavior,
+      duration,
+      offset: window._108StickyOffset()
+    });
   };
 
   // 6) Anchors (same-page + cross-page)
