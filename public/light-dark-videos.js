@@ -31,7 +31,7 @@
   }
 
   function getDefaultMode() {
-    const m = (document.body.getAttribute(MODE_ATTR) || MODE_MAIN).toLowerCase();
+    const m = (document.body.getAttribute(MODE_ATTR) || MODE_HOVER).toLowerCase();
     return m === MODE_HOVER ? MODE_HOVER : MODE_MAIN;
   }
 
