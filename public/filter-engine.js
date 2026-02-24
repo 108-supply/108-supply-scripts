@@ -4,70 +4,34 @@
 // Nie ingeruje w Twój is-base system
 // ========================================
 (() => {
-  const inLight = () => document.body.classList.contains("is-base");
-
-  function isHoverVisible(card) {
-    const hover = card.querySelector("video.video-hover");
-    if (!hover || hover.dataset.loaded !== "1") return false;
-    const op = parseFloat(hover.style.opacity || "0");
-    return op > 0.01 || card.classList.contains("hover-active");
-  }
-
-  function videosToRun(card) {
-    const dark = card.querySelector("video.video-dark");
-    const light = card.querySelector("video.video-light");
-    const hover = card.querySelector("video.video-hover");
-    const run = new Set();
-
-    if (isHoverVisible(card)) {
-      if (hover) run.add(hover);
-      return run;
-    }
-
-    if (inLight() && light && light.dataset.loaded === "1") {
-      run.add(light);
-      return run;
-    }
-
-    if (dark) run.add(dark);
-    return run;
-  }
-
   function isCardInViewport(card) {
     const r = card.getBoundingClientRect();
     return r.bottom > -120 && r.top < window.innerHeight + 120;
   }
 
-  function bindPlayWhenReady(video, card) {
-    if (video.dataset.playWhenReadyBound === "1") return;
-    video.dataset.playWhenReadyBound = "1";
+  function bindDarkPlayWhenReady(dark, card) {
+    if (!dark || dark.dataset.darkReadyBound === "1") return;
+    dark.dataset.darkReadyBound = "1";
 
     const tryPlay = () => {
       if (!isCardVisible(card)) return;
       if (!isCardInViewport(card)) return;
-      if (!videosToRun(card).has(video)) return;
-      if (video.paused && video.readyState >= 2) {
-        video.play().catch(() => {});
+      if (dark.paused && dark.readyState >= 2) {
+        dark.play().catch(() => {});
       }
     };
 
-    video.addEventListener("loadeddata", tryPlay);
-    video.addEventListener("canplay", tryPlay);
+    dark.addEventListener("loadeddata", tryPlay);
+    dark.addEventListener("canplay", tryPlay);
   }
 
   function applyPlaybackForCard(card) {
-    const videos = card.querySelectorAll("video");
-    const run = videosToRun(card);
-    videos.forEach(v => {
-      bindPlayWhenReady(v, card);
-      if (run.has(v)) {
-        if (v.paused && v.readyState >= 2) {
-          v.play().catch(() => {});
-        }
-        return;
-      }
-      v.pause();
-    });
+    const dark = card.querySelector("video.video-dark");
+    if (!dark) return;
+    bindDarkPlayWhenReady(dark, card);
+    if (dark.paused && dark.readyState >= 2) {
+      dark.play().catch(() => {});
+    }
   }
 
   function kickVisiblePlayback() {
