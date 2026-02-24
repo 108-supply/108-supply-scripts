@@ -4,8 +4,16 @@
 
   const queue = new Set();
   let scheduled = false;
+  const pairStates = new WeakMap();
+  const trackedPairs = new Set();
+  let syncRaf = 0;
 
-  const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+  const SYNC = {
+    hardSeek: 0.18,
+    nudgeThreshold: 0.035,
+    settleThreshold: 0.012,
+    maxRateOffset: 0.08
+  };
 
   function ensureSource(v) {
     return v.querySelector("source") || (() => {
@@ -26,35 +34,163 @@
     return { pair, dark, light, hover };
   }
 
-  function safeSync(reference, target) {
-    if (!reference || !target) return;
-    if (reference.readyState < 2 || target.readyState < 2) return;
-    if (Math.abs((target.currentTime || 0) - (reference.currentTime || 0)) < 0.12) return;
+  function normalizeTimeForVideo(video, time) {
+    const d = video.duration;
+    if (!Number.isFinite(d) || d <= 0) return Math.max(0, time);
+    const t = time % d;
+    return t < 0 ? t + d : t;
+  }
 
-    try {
-      if (isSafari) {
-        target.pause();
-        target.currentTime = reference.currentTime;
-        const p = target.play();
-        if (p && p.catch) p.catch(() => {});
-      } else {
-        target.currentTime = reference.currentTime;
+  function isInViewport(el) {
+    const r = el.getBoundingClientRect();
+    return r.bottom > -100 && r.top < window.innerHeight + 100;
+  }
+
+  function getOrCreatePairState(pair) {
+    let state = pairStates.get(pair);
+    if (state) return state;
+
+    const dark = pair.querySelector("video.video-dark");
+    const light = pair.querySelector("video.video-light");
+    const hover = pair.querySelector("video.video-hover");
+    if (!dark) return null;
+
+    state = {
+      pair,
+      dark,
+      light,
+      hover,
+      hoverActive: false,
+      clock: {
+        mediaTime: 0,
+        perfTime: performance.now(),
+        playbackRate: 1,
+        paused: true
       }
-    } catch (e) {}
+    };
+
+    [dark, light, hover].forEach(v => {
+      if (!v || v.dataset.syncClockBound === "1") return;
+      v.dataset.syncClockBound = "1";
+      ["loadeddata", "play", "pause", "ratechange", "seeking", "seeked", "timeupdate"].forEach(evt => {
+        v.addEventListener(evt, () => {
+          const s = getOrCreatePairState(pair);
+          if (!s) return;
+          const master = pickMasterVideo(s);
+          if (!master) return;
+          captureClockFromMaster(s, master);
+          syncPair(s);
+        }, { passive: true });
+      });
+    });
+
+    pairStates.set(pair, state);
+    trackedPairs.add(pair);
+    return state;
+  }
+
+  function pickMasterVideo(state) {
+    if (state.dark && state.dark.readyState >= 2) return state.dark;
+    if (state.light && state.light.readyState >= 2) return state.light;
+    if (state.hover && state.hover.readyState >= 2) return state.hover;
+    return null;
+  }
+
+  function captureClockFromMaster(state, master) {
+    if (!master || master.readyState < 2) return;
+    state.clock.mediaTime = master.currentTime || 0;
+    state.clock.perfTime = performance.now();
+    state.clock.playbackRate = Number.isFinite(master.playbackRate) && master.playbackRate > 0 ? master.playbackRate : 1;
+    state.clock.paused = !!master.paused;
+  }
+
+  function predictedClockTime(state, video) {
+    const elapsed = (performance.now() - state.clock.perfTime) / 1000;
+    const raw = state.clock.paused
+      ? state.clock.mediaTime
+      : state.clock.mediaTime + elapsed * state.clock.playbackRate;
+    return normalizeTimeForVideo(video, raw);
+  }
+
+  function syncFollower(video, state, allowPlay) {
+    if (!video || video.readyState < 2) return;
+
+    const target = predictedClockTime(state, video);
+    const now = video.currentTime || 0;
+    const drift = target - now;
+    const absDrift = Math.abs(drift);
+
+    if (absDrift > SYNC.hardSeek) {
+      try { video.currentTime = target; } catch (e) {}
+    }
+
+    const baseRate = state.clock.playbackRate || 1;
+    if (absDrift > SYNC.nudgeThreshold) {
+      const offset = Math.max(-SYNC.maxRateOffset, Math.min(SYNC.maxRateOffset, drift * 0.6));
+      video.playbackRate = Math.max(0.5, Math.min(2, baseRate + offset));
+    } else if (Math.abs(video.playbackRate - baseRate) > SYNC.settleThreshold) {
+      video.playbackRate = baseRate;
+    }
+
+    if (state.clock.paused || !allowPlay) {
+      if (!video.paused) video.pause();
+      return;
+    }
+
+    if (video.paused) {
+      const p = video.play();
+      if (p && p.catch) p.catch(() => {});
+    }
+  }
+
+  function syncPair(state) {
+    if (!state || !state.pair.isConnected) return;
+    const master = pickMasterVideo(state);
+    if (!master) return;
+
+    captureClockFromMaster(state, master);
+
+    const videos = [state.dark, state.light, state.hover];
+    videos.forEach(v => {
+      if (!v || v === master) return;
+      const allowPlay = (v === state.light)
+        ? inLight()
+        : !(v === state.hover && !state.hoverActive);
+      syncFollower(v, state, allowPlay);
+    });
+
+    if (state.hover && !state.hoverActive && !state.hover.paused) {
+      state.hover.pause();
+    }
+  }
+
+  function ensureSyncLoop() {
+    if (syncRaf) return;
+    const tick = () => {
+      syncRaf = requestAnimationFrame(tick);
+      if (document.hidden) return;
+
+      trackedPairs.forEach(pair => {
+        if (!pair.isConnected) {
+          trackedPairs.delete(pair);
+          return;
+        }
+
+        const state = pairStates.get(pair);
+        if (!state) return;
+        if (!state.hoverActive && !isInViewport(pair)) return;
+        syncPair(state);
+      });
+    };
+    syncRaf = requestAnimationFrame(tick);
   }
 
   function syncVisiblePairs() {
     document.querySelectorAll(".video-pair").forEach(pair => {
-      const r = pair.getBoundingClientRect();
-      if (r.bottom <= 0 || r.top >= window.innerHeight) return;
-
-      const dark = pair.querySelector("video.video-dark");
-      const light = pair.querySelector("video.video-light");
-      const hover = pair.querySelector("video.video-hover");
-
-      if (!dark) return;
-      if (light && light.dataset.loaded === "1") safeSync(dark, light);
-      if (hover && hover.dataset.loaded === "1") safeSync(dark, hover);
+      if (!isInViewport(pair)) return;
+      const state = getOrCreatePairState(pair);
+      if (!state) return;
+      syncPair(state);
     });
   }
 
@@ -72,9 +208,9 @@
 
       const p = getPair(v);
       if (!p) return;
-
-      if (v.classList.contains("video-light")) safeSync(p.dark, v);
-      if (v.classList.contains("video-hover")) safeSync(p.dark, v);
+      const state = getOrCreatePairState(p.pair);
+      if (!state) return;
+      syncPair(state);
     }, { once: true });
 
     v.load();
@@ -116,7 +252,12 @@
   }, { root: null, threshold: 0.15 });
 
   function observeAll() {
-    document.querySelectorAll("video.video-light").forEach(v => io.observe(v));
+    document.querySelectorAll("video.video-light").forEach(v => {
+      if (v.dataset.lightObserved === "1") return;
+      v.dataset.lightObserved = "1";
+      io.observe(v);
+    });
+    document.querySelectorAll(".video-pair").forEach(pair => getOrCreatePairState(pair));
   }
 
   function onThemeChange() {
@@ -133,36 +274,47 @@
   // ---------- HOVER ----------
 
   function showHover(pair, hoverVideo) {
-    // lazy load przy pierwszym hover
-    if (hoverVideo.dataset.loaded !== "1") {
-      loadOne(hoverVideo);
-      hoverVideo.addEventListener("loadeddata", () => {
-        const dark = pair.querySelector("video.video-dark");
-        safeSync(dark, hoverVideo);
+    const state = getOrCreatePairState(pair);
+    if (state) state.hoverActive = true;
+
+    const startHover = () => {
+      const s = getOrCreatePairState(pair);
+      if (!s) return;
+      syncPair(s);
+      if (!s.clock.paused) {
         const p = hoverVideo.play();
         if (p && p.catch) p.catch(() => {});
-      }, { once: true });
-    } else {
-      const dark = pair.querySelector("video.video-dark");
-      safeSync(dark, hoverVideo);
-      const p = hoverVideo.play();
-      if (p && p.catch) p.catch(() => {});
-    }
+      }
+      hoverVideo.style.opacity = "1";
+    };
 
-    hoverVideo.style.opacity = "1";
+    // lazy load on first hover
+    if (hoverVideo.dataset.loaded !== "1") {
+      loadOne(hoverVideo);
+      hoverVideo.addEventListener("loadeddata", startHover, { once: true });
+    } else {
+      startHover();
+    }
   }
 
   function hideHover(hoverVideo) {
+    const pair = hoverVideo.closest(".video-pair");
+    const state = pair ? getOrCreatePairState(pair) : null;
+    if (state) state.hoverActive = false;
+
     hoverVideo.style.opacity = "0";
-    // poczekaj na fade out zanim pauzujesz
+    // Keep currentTime to avoid jump-cut glitch on next hover.
     setTimeout(() => {
       hoverVideo.pause();
-      hoverVideo.currentTime = 0;
+      hoverVideo.playbackRate = 1;
     }, 200);
   }
 
   function initCards() {
     document.querySelectorAll(".motion-template_card").forEach(card => {
+      if (card.dataset.hoverCardInit === "1") return;
+      card.dataset.hoverCardInit = "1";
+
       const pair = card.querySelector(".video-pair");
       if (!pair) return;
 
@@ -195,6 +347,9 @@
 
   function initMobileToggle() {
     document.querySelectorAll(".show-examples-btn").forEach(btn => {
+      if (btn.dataset.mobileHoverInit === "1") return;
+      btn.dataset.mobileHoverInit = "1";
+
       btn.addEventListener("click", () => {
         const card = btn.closest(".motion-template_card");
         if (!card) return;
@@ -227,6 +382,7 @@
     onThemeChange();
     initCards();
     initMobileToggle();
+    ensureSyncLoop();
   }
 
   if (document.readyState === "loading") {
@@ -244,6 +400,7 @@
     onThemeChange();
     initCards();
     initMobileToggle();
+    ensureSyncLoop();
   }).observe(document.documentElement, { childList: true, subtree: true });
 
 })();
