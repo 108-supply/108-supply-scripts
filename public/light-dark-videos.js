@@ -1,4 +1,274 @@
 (() => {
+  // Global guard: prevent duplicate init if script is injected twice.
+  if (window.__BYQ_LIGHT_DARK_VIDEOS_INIT__) return;
+  window.__BYQ_LIGHT_DARK_VIDEOS_INIT__ = true;
+
+  const LIGHT_CLASS = "is-base";
+  const inLight = () => document.body.classList.contains(LIGHT_CLASS);
+
+  const queue = new Set();
+  let scheduled = false;
+  const hoverHideTimers = new WeakMap();
+
+  const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+
+  function ensureSource(v) {
+    return v.querySelector("source") || (() => {
+      const ns = document.createElement("source");
+      ns.type = "video/mp4";
+      v.appendChild(ns);
+      return ns;
+    })();
+  }
+
+  function getPair(v) {
+    const pair = v.closest(".video-pair");
+    if (!pair) return null;
+    const dark = pair.querySelector("video.video-dark");
+    const light = pair.querySelector("video.video-light");
+    const hover = pair.querySelector("video.video-hover");
+    if (!dark) return null;
+    return { pair, dark, light, hover };
+  }
+
+  function safeSync(reference, target) {
+    if (!reference || !target) return;
+    if (reference.readyState < 2 || target.readyState < 2) return;
+    if (Math.abs((target.currentTime || 0) - (reference.currentTime || 0)) < 0.12) return;
+
+    try {
+      if (isSafari) {
+        target.pause();
+        target.currentTime = reference.currentTime;
+        const p = target.play();
+        if (p && p.catch) p.catch(() => {});
+      } else {
+        target.currentTime = reference.currentTime;
+      }
+    } catch (e) {}
+  }
+
+  function syncVisiblePairs() {
+    document.querySelectorAll(".video-pair").forEach(pair => {
+      const r = pair.getBoundingClientRect();
+      if (r.bottom <= 0 || r.top >= window.innerHeight) return;
+
+      const dark = pair.querySelector("video.video-dark");
+      const light = pair.querySelector("video.video-light");
+      const hover = pair.querySelector("video.video-hover");
+
+      if (!dark) return;
+      if (light && light.dataset.loaded === "1") safeSync(dark, light);
+      if (hover && hover.dataset.loaded === "1") safeSync(dark, hover);
+    });
+  }
+
+  function loadOne(v) {
+    if (!v || v.dataset.loaded === "1") return;
+    const src = v.dataset.src;
+    if (!src) return;
+
+    const s = ensureSource(v);
+    s.src = src;
+
+    v.addEventListener("loadeddata", () => {
+      v.dataset.loaded = "1";
+      v.setAttribute("data-loaded", "1");
+
+      const p = getPair(v);
+      if (!p) return;
+
+      if (v.classList.contains("video-light")) safeSync(p.dark, v);
+      if (v.classList.contains("video-hover")) safeSync(p.dark, v);
+    }, { once: true });
+
+    v.load();
+  }
+
+  // ---------- QUEUE ----------
+
+  function flushQueue() {
+    scheduled = false;
+    if (!inLight()) return;
+
+    let n = 0;
+    for (const v of queue) {
+      queue.delete(v);
+      loadOne(v);
+      n++;
+      if (n >= 6) break;
+    }
+    if (queue.size) scheduleFlush();
+  }
+
+  function scheduleFlush() {
+    if (scheduled) return;
+    scheduled = true;
+    if ("requestIdleCallback" in window) {
+      requestIdleCallback(flushQueue, { timeout: 250 });
+    } else {
+      setTimeout(flushQueue, 60);
+    }
+  }
+
+  const io = new IntersectionObserver((entries) => {
+    if (!inLight()) return;
+    for (const e of entries) {
+      if (!e.isIntersecting) continue;
+      queue.add(e.target);
+    }
+    scheduleFlush();
+  }, { root: null, threshold: 0.15 });
+
+  function observeAll() {
+    document.querySelectorAll("video.video-light").forEach(v => {
+      if (v.dataset.ioObserved === "1") return;
+      v.dataset.ioObserved = "1";
+      io.observe(v);
+    });
+  }
+
+  function onThemeChange() {
+    if (!inLight()) return;
+    document.querySelectorAll("video.video-light").forEach(v => {
+      const r = v.getBoundingClientRect();
+      if (r.bottom > 0 && r.top < window.innerHeight) queue.add(v);
+    });
+    scheduleFlush();
+    setTimeout(syncVisiblePairs, 120);
+    setTimeout(syncVisiblePairs, 420);
+  }
+
+  // ---------- HOVER ----------
+
+  function showHover(pair, hoverVideo) {
+    const pending = hoverHideTimers.get(hoverVideo);
+    if (pending) {
+      clearTimeout(pending);
+      hoverHideTimers.delete(hoverVideo);
+    }
+
+    // lazy load przy pierwszym hover
+    if (hoverVideo.dataset.loaded !== "1") {
+      loadOne(hoverVideo);
+      hoverVideo.addEventListener("loadeddata", () => {
+        const dark = pair.querySelector("video.video-dark");
+        safeSync(dark, hoverVideo);
+        const p = hoverVideo.play();
+        if (p && p.catch) p.catch(() => {});
+      }, { once: true });
+    } else {
+      const dark = pair.querySelector("video.video-dark");
+      safeSync(dark, hoverVideo);
+      const p = hoverVideo.play();
+      if (p && p.catch) p.catch(() => {});
+    }
+
+    hoverVideo.style.opacity = "1";
+  }
+
+  function hideHover(hoverVideo) {
+    hoverVideo.style.opacity = "0";
+    // poczekaj na fade out zanim pauzujesz
+    const t = setTimeout(() => {
+      hoverVideo.pause();
+      hoverHideTimers.delete(hoverVideo);
+    }, 200);
+    hoverHideTimers.set(hoverVideo, t);
+  }
+
+  function initCards() {
+    document.querySelectorAll(".motion-template_card").forEach(card => {
+      const pair = card.querySelector(".video-pair");
+      if (!pair) return;
+
+      const hoverVideo = pair.querySelector("video.video-hover");
+      if (!hoverVideo) return;
+
+      // upewnij się że hover video ma prawidłowe style
+      Object.assign(hoverVideo.style, {
+        position: "absolute",
+        inset: "0",
+        width: "100%",
+        height: "100%",
+        objectFit: "cover",
+        opacity: "0",
+        transition: "opacity 0.2s ease",
+        zIndex: "2",
+        pointerEvents: "none"
+      });
+
+      // upewnij się że .video-pair ma position relative
+      pair.style.position = "relative";
+
+      // desktop hover (bind once)
+      if (card.dataset.hoverBound !== "1") {
+        card.dataset.hoverBound = "1";
+        card.addEventListener("mouseenter", () => showHover(pair, hoverVideo));
+        card.addEventListener("mouseleave", () => hideHover(hoverVideo));
+      }
+    });
+  }
+
+  // ---------- MOBILE TOGGLE ----------
+
+  function initMobileToggle() {
+    document.querySelectorAll(".show-examples-btn").forEach(btn => {
+      if (btn.dataset.mobileHoverBound === "1") return;
+      btn.dataset.mobileHoverBound = "1";
+
+      btn.addEventListener("click", () => {
+        const card = btn.closest(".motion-template_card");
+        if (!card) return;
+
+        const pair = card.querySelector(".video-pair");
+        if (!pair) return;
+
+        const hoverVideo = pair.querySelector("video.video-hover");
+        if (!hoverVideo) return;
+
+        const isActive = card.classList.contains("hover-active");
+
+        if (!isActive) {
+          card.classList.add("hover-active");
+          btn.textContent = "Hide examples";
+          showHover(pair, hoverVideo);
+        } else {
+          card.classList.remove("hover-active");
+          btn.textContent = "Show examples";
+          hideHover(hoverVideo);
+        }
+      });
+    });
+  }
+
+  // ---------- INIT ----------
+
+  function init() {
+    observeAll();
+    onThemeChange();
+    initCards();
+    initMobileToggle();
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
+  } else {
+    init();
+  }
+
+  new MutationObserver(onThemeChange)
+    .observe(document.body, { attributes: true, attributeFilter: ["class"] });
+
+  // re-init po załadowaniu nowych kart (infinite scroll / CMS load more)
+  new MutationObserver(() => {
+    observeAll();
+    onThemeChange();
+    initCards();
+    initMobileToggle();
+  }).observe(document.documentElement, { childList: true, subtree: true });
+})();
+(() => {
   const LIGHT_CLASS = "is-base";
   const inLight = () => document.body.classList.contains(LIGHT_CLASS);
 
