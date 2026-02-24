@@ -184,6 +184,11 @@
         if (play && play.catch) play.catch(() => {});
       }
     });
+
+    if (typeof window.BYQGrid?.kickVisiblePlayback === "function") {
+      window.BYQGrid.kickVisiblePlayback();
+      setTimeout(() => window.BYQGrid.kickVisiblePlayback(), 120);
+    }
   }
 
   function refreshObservedLightVideos() {

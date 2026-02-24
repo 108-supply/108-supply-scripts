@@ -80,6 +80,11 @@
         observer.unobserve(card);
         delete card.dataset.observed;
         card.querySelectorAll("video").forEach(v => v.pause());
+        return;
+      }
+
+      if (visible) {
+        applyPlaybackForCard(card);
       }
     });
   }
@@ -103,6 +108,7 @@
   // Re-observe after filter/load more
   window.BYQGrid = window.BYQGrid || {};
   window.BYQGrid.refreshVideoObserver = syncObservedCards;
+  window.BYQGrid.kickVisiblePlayback = kickVisiblePlayback;
 
   // Safari/Chrome recovery: some muted videos may stay paused after ready events.
   // Gentle periodic kick for visible observed cards.
