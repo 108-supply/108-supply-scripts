@@ -26,14 +26,28 @@
 
     const mode = getVideoMode();
     const hovering = isCardHovering(card);
+    const darkLoaded = !!(dark && dark.dataset.loaded === "1");
+    const hoverLoaded = !!(hover && hover.dataset.loaded === "1");
 
     if (mode === "hover") {
-      if (hovering) return dark || hover;
-      return (hover && hover.dataset.loaded === "1") ? hover : dark;
+      if (hovering) {
+        if (darkLoaded) return dark;
+        if (hoverLoaded) return hover;
+        return null;
+      }
+      if (hoverLoaded) return hover;
+      if (darkLoaded) return dark;
+      return null;
     }
 
-    if (hovering) return (hover && hover.dataset.loaded === "1") ? hover : dark;
-    return dark || hover;
+    if (hovering) {
+      if (hoverLoaded) return hover;
+      if (darkLoaded) return dark;
+      return null;
+    }
+    if (darkLoaded) return dark;
+    if (hoverLoaded) return hover;
+    return null;
   }
 
   function isCardInViewport(card) {

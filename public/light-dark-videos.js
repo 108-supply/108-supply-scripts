@@ -155,14 +155,28 @@
     const { dark, hover } = getCardVideos(card);
     const mode = getMode();
     const hovering = card.dataset.hovering === "1" || card.classList.contains("hover-active");
+    const darkLoaded = !!(dark && dark.dataset.loaded === "1");
+    const hoverLoaded = !!(hover && hover.dataset.loaded === "1");
 
     if (mode === "hover") {
-      if (hovering) return dark || hover;
-      return (hover && hover.dataset.loaded === "1") ? hover : dark;
+      if (hovering) {
+        if (darkLoaded) return dark;
+        if (hoverLoaded) return hover;
+        return null;
+      }
+      if (hoverLoaded) return hover;
+      if (darkLoaded) return dark;
+      return null;
     }
 
-    if (hovering) return (hover && hover.dataset.loaded === "1") ? hover : dark;
-    return dark || hover;
+    if (hovering) {
+      if (hoverLoaded) return hover;
+      if (darkLoaded) return dark;
+      return null;
+    }
+    if (darkLoaded) return dark;
+    if (hoverLoaded) return hover;
+    return null;
   }
 
   function applyCardVideoMode(card) {
@@ -170,6 +184,7 @@
     if (!dark && !hover) return;
 
     const target = getTargetVideo(card);
+    if (!target) return;
     const source = target === dark ? hover : dark;
     syncTo(source, target);
 
