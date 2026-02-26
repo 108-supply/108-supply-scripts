@@ -24,7 +24,13 @@
 
   let _activeLoads = 0;
   const _IPAD_MAX = 3;
+  const _MOBILE_MAX = 6;
   const _pendingQueue = [];
+  function _touchLoadCap() {
+    const dm = _deviceMode();
+    if (dm === "mobileSmall") return _MOBILE_MAX;
+    return _IPAD_MAX;
+  }
 
   function normalizeMode(raw) {
     const m = String(raw || "").trim().toLowerCase();
@@ -218,20 +224,22 @@
   }
 
   function _drainQueue() {
-    while (_pendingQueue.length && (_isDesktop() || _activeLoads < _IPAD_MAX)) {
+    while (_pendingQueue.length && (_isDesktop() || _activeLoads < _touchLoadCap())) {
       const { v, tag } = _pendingQueue.shift();
       if (v.dataset.loaded !== "1" && v.dataset.loading !== "1") loadOne(v, tag + "(q)");
     }
   }
 
-  function loadOne(v, tag) {
+  function loadOne(v, tag, prioritizeFront) {
     if (!v || v.dataset.loaded === "1" || v.dataset.loading === "1") return;
     const src = v.dataset.src;
     if (!src) return;
 
-    if (!_isDesktop() && _activeLoads >= _IPAD_MAX) {
+    if (!_isDesktop() && _activeLoads >= _touchLoadCap()) {
       if (!_pendingQueue.some(q => q.v === v)) {
-        _pendingQueue.push({ v, tag: tag || "?" });
+        const item = { v, tag: tag || "?" };
+        if (prioritizeFront) _pendingQueue.unshift(item);
+        else _pendingQueue.push(item);
         _dbg("queued", v.className, tag, "active:", _activeLoads);
       }
       return;
@@ -306,17 +314,17 @@
         if (hover && hover.dataset.src && !sourceAttr(hover) && mode === "hover") loadOne(hover, "desk-hover");
       } else if (dm === "iPadCoarse") {
         if (mode === "hover") {
-          if (hover && hover.dataset.src && !sourceAttr(hover)) loadOne(hover, "ipad-hover");
-          if (dark && dark.dataset.loaded === "1") unloadVideo(dark);
+          if (hover && hover.dataset.src && !sourceAttr(hover)) loadOne(hover, "ipad-hover", true);
+          if (dark && dark.dataset.loaded === "1" && isUsableVideo(hover)) unloadVideo(dark);
         } else {
-          if (dark.dataset.src && !sourceAttr(dark)) loadOne(dark, "ipad-dark");
-          if (hover && hover.dataset.loaded === "1") unloadVideo(hover);
+          if (dark.dataset.src && !sourceAttr(dark)) loadOne(dark, "ipad-dark", true);
+          if (hover && hover.dataset.loaded === "1" && isUsableVideo(dark)) unloadVideo(hover);
         }
       } else {
         if (mode === "hover") {
-          if (hover && hover.dataset.src && !sourceAttr(hover)) loadOne(hover, "mob-hover");
+          if (hover && hover.dataset.src && !sourceAttr(hover)) loadOne(hover, "mob-hover", true);
         } else {
-          if (dark.dataset.src && !sourceAttr(dark)) loadOne(dark, "mob-dark");
+          if (dark.dataset.src && !sourceAttr(dark)) loadOne(dark, "mob-dark", true);
         }
       }
 
@@ -377,15 +385,15 @@
         if (hover && hover.dataset.src && !sourceAttr(hover) && hover.dataset.loaded !== "1" && !hover.dataset.loading && mode === "hover") loadOne(hover, "io-desk-hover");
       } else if (dm === "iPadCoarse") {
         if (mode === "hover") {
-          if (hover && hover.dataset.src && !sourceAttr(hover) && hover.dataset.loaded !== "1" && !hover.dataset.loading) loadOne(hover, "io-ipad-hover");
+          if (hover && hover.dataset.src && !sourceAttr(hover) && hover.dataset.loaded !== "1" && !hover.dataset.loading) loadOne(hover, "io-ipad-hover", true);
         } else {
-          if (dark && dark.dataset.src && !sourceAttr(dark) && dark.dataset.loaded !== "1" && !dark.dataset.loading) loadOne(dark, "io-ipad-dark");
+          if (dark && dark.dataset.src && !sourceAttr(dark) && dark.dataset.loaded !== "1" && !dark.dataset.loading) loadOne(dark, "io-ipad-dark", true);
         }
       } else {
         if (mode === "hover") {
-          if (hover && hover.dataset.src && !sourceAttr(hover) && hover.dataset.loaded !== "1" && !hover.dataset.loading) loadOne(hover, "io-mob-hover");
+          if (hover && hover.dataset.src && !sourceAttr(hover) && hover.dataset.loaded !== "1" && !hover.dataset.loading) loadOne(hover, "io-mob-hover", true);
         } else {
-          if (dark && dark.dataset.src && !sourceAttr(dark) && dark.dataset.loaded !== "1" && !dark.dataset.loading) loadOne(dark, "io-mob-dark");
+          if (dark && dark.dataset.src && !sourceAttr(dark) && dark.dataset.loaded !== "1" && !dark.dataset.loading) loadOne(dark, "io-mob-dark", true);
         }
       }
       applyCardVideoMode(card);
@@ -541,6 +549,9 @@
       initCards();
       initMobileToggle();
       initVideoModeSwitcher();
+      if (typeof window._108Grid?.kickVisiblePlayback === "function") {
+        setTimeout(() => window._108Grid.kickVisiblePlayback(), 160);
+      }
     });
   }).observe(document.documentElement, { childList: true, subtree: true });
 })();
