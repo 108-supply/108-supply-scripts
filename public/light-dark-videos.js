@@ -161,25 +161,46 @@
     const { dark, hover } = getCardVideos(card);
     if (!dark && !hover) return;
 
+    const touch = isTouchDevice();
     const target = getTargetVideo(card);
     const source = target === dark ? hover : dark;
-    syncTo(source, target);
-
-    if (dark) {
-      dark.style.opacity = target === dark ? "1" : "0";
-      if (target === dark) {
+    if (touch) {
+      // Touch Safari hardening: no crossfade/layering; render one stable stream only.
+      if (dark) {
+        dark.style.transition = "none";
+        dark.style.opacity = target === dark ? "1" : "0";
+        dark.style.display = target === dark ? "block" : "none";
         cancelScheduledPause(dark);
-      } else {
-        schedulePauseAfterFade(dark, card);
+        if (target !== dark && !dark.paused) dark.pause();
       }
-    }
-
-    if (hover) {
-      hover.style.opacity = target === hover ? "1" : "0";
-      if (target === hover) {
+      if (hover) {
+        hover.style.transition = "none";
+        hover.style.opacity = target === hover ? "1" : "0";
+        hover.style.display = target === hover ? "block" : "none";
         cancelScheduledPause(hover);
-      } else {
-        schedulePauseAfterFade(hover, card);
+        if (target !== hover && !hover.paused) hover.pause();
+      }
+    } else {
+      syncTo(source, target);
+
+      if (dark) {
+        dark.style.display = "block";
+        dark.style.opacity = target === dark ? "1" : "0";
+        if (target === dark) {
+          cancelScheduledPause(dark);
+        } else {
+          schedulePauseAfterFade(dark, card);
+        }
+      }
+
+      if (hover) {
+        hover.style.display = "block";
+        hover.style.opacity = target === hover ? "1" : "0";
+        if (target === hover) {
+          cancelScheduledPause(hover);
+        } else {
+          schedulePauseAfterFade(hover, card);
+        }
       }
     }
 
@@ -300,20 +321,37 @@
       const { pair, hover } = getCardVideos(card);
       if (!pair || !hover) return;
 
-      Object.assign(hover.style, {
-        position: "absolute",
-        inset: "0",
-        width: "100%",
-        height: "100%",
-        objectFit: "cover",
-        opacity: "0",
-        transition: "opacity 0.2s ease",
-        zIndex: "2",
-        pointerEvents: "none",
-        transform: "translateZ(0)",
-        backfaceVisibility: "hidden",
-        willChange: "opacity"
-      });
+      if (!touch) {
+        Object.assign(hover.style, {
+          position: "absolute",
+          inset: "0",
+          width: "100%",
+          height: "100%",
+          objectFit: "cover",
+          opacity: "0",
+          transition: "opacity 0.2s ease",
+          zIndex: "2",
+          pointerEvents: "none",
+          transform: "translateZ(0)",
+          backfaceVisibility: "hidden",
+          willChange: "opacity"
+        });
+      } else {
+        Object.assign(hover.style, {
+          position: "static",
+          inset: "",
+          width: "100%",
+          height: "100%",
+          objectFit: "cover",
+          opacity: "1",
+          transition: "none",
+          zIndex: "",
+          pointerEvents: "none",
+          transform: "none",
+          backfaceVisibility: "",
+          willChange: "auto"
+        });
+      }
 
       pair.style.position = "relative";
       pair.style.overflow = "hidden";
