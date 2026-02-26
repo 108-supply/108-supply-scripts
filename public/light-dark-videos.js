@@ -9,7 +9,14 @@
   const FADE_MS = 200;
 
   const _finePointer = window.matchMedia && window.matchMedia("(hover: hover) and (pointer: fine)");
+  const _mobileWidth = 768;
   function isDesktop() { return !!(_finePointer && _finePointer.matches); }
+  function isMobile() { return !isDesktop() && window.innerWidth < _mobileWidth; }
+  function deviceTier() { return isDesktop() ? "desktop" : isMobile() ? "mobile" : "tablet"; }
+
+  function dbg(...args) {
+    if (window.__VID_DEBUG) console.log("[VID]", ...args);
+  }
 
   function normalizeMode(raw) {
     const m = String(raw || "").trim().toLowerCase();
@@ -118,12 +125,14 @@
     const hovering = card.dataset.hovering === "1" || card.classList.contains("hover-active");
 
     if (mode === "hover") {
-      if (hovering) return dark || example;
-      return (example && example.dataset.loaded === "1") ? example : dark;
+      if (hovering && dark && dark.dataset.loaded === "1") return dark;
+      if (example && example.dataset.loaded === "1") return example;
+      return null;
     }
 
-    if (hovering) return (example && example.dataset.loaded === "1") ? example : dark;
-    return dark || example;
+    if (hovering && example && example.dataset.loaded === "1") return example;
+    if (dark && dark.dataset.loaded === "1") return dark;
+    return null;
   }
 
   function applyCardVideoMode(card) {
@@ -131,6 +140,8 @@
     if (!dark && !example) return;
 
     const target = getTargetVideo(card);
+    if (!target) return;
+
     const source = target === dark ? example : dark;
     syncTo(source, target);
 
@@ -149,10 +160,12 @@
     playIfReady(target);
   }
 
-  function loadOne(v) {
+  function loadOne(v, reason) {
     if (!v || v.dataset.loaded === "1") return;
     const src = v.dataset.src;
     if (!src) return;
+
+    dbg("loadOne", v.className, "reason:", reason || "unknown", "src:", src.split("/").pop());
 
     const s = ensureSource(v);
     s.src = src;
@@ -160,6 +173,7 @@
     v.addEventListener("loadeddata", () => {
       v.dataset.loaded = "1";
       v.setAttribute("data-loaded", "1");
+      dbg("loaded", v.className, src.split("/").pop());
 
       const card = getCard(v.closest(".motion-template_card"));
       if (!card) return;
@@ -171,40 +185,46 @@
   }
 
   function refreshProductVideoLoading() {
-    const desktop = isDesktop();
-    document.querySelectorAll(".motion-template_card").forEach(card => {
+    const tier = deviceTier();
+    const mode = getMode();
+    dbg("refreshProductVideoLoading tier:", tier, "mode:", mode);
+
+    document.querySelectorAll(".motion-template_card").forEach((card, i) => {
       const visible = isCardVisible(card);
+      const near = visible && isNearViewport(card);
       const { dark, example } = getCardVideos(card);
-      const mode = getMode();
 
-      if (!dark) return;
+      if (!dark && !example) return;
 
-      if (!visible) {
-        if (sourceAttr(dark) && dark.dataset.loaded !== "1") stashAsLazy(dark);
+      if (!visible || !near) {
+        if (dark && sourceAttr(dark) && dark.dataset.loaded !== "1") stashAsLazy(dark);
         if (example && sourceAttr(example) && example.dataset.loaded !== "1") stashAsLazy(example);
-        if (!dark.paused) dark.pause();
+        if (dark && !dark.paused) dark.pause();
         if (example && !example.paused) example.pause();
         return;
       }
 
-      if (desktop) {
-        if (dark.dataset.src && !sourceAttr(dark)) loadOne(dark);
-        if (example && example.dataset.src && !sourceAttr(example) && mode === "hover") loadOne(example);
-      } else {
-        // Touch: load only the variant needed for the current mode.
-        if (mode === "main") {
-          if (dark.dataset.src && !sourceAttr(dark)) loadOne(dark);
+      if (tier === "desktop") {
+        if (mode === "hover") {
+          if (example && example.dataset.src && !sourceAttr(example)) loadOne(example, "desktop-primary-hover");
         } else {
-          if (example && example.dataset.src && !sourceAttr(example)) loadOne(example);
-          if (!dark.dataset.loaded && dark.dataset.src && !sourceAttr(dark)) {
-            // Skip loading dark on touch in hover/example mode.
-          } else if (dark.dataset.loaded === "1") {
-            // Already loaded — keep it, just don't start new loads.
-          }
+          if (dark && dark.dataset.src && !sourceAttr(dark)) loadOne(dark, "desktop-primary-blank");
+        }
+      } else if (tier === "tablet") {
+        if (mode === "hover") {
+          if (example && example.dataset.src && !sourceAttr(example)) loadOne(example, "tablet-primary-hover");
+        } else {
+          if (dark && dark.dataset.src && !sourceAttr(dark)) loadOne(dark, "tablet-switcher-blank");
+        }
+      } else {
+        if (mode === "hover") {
+          if (example && example.dataset.src && !sourceAttr(example)) loadOne(example, "mobile-primary-hover");
+        } else {
+          if (dark && dark.dataset.src && !sourceAttr(dark)) loadOne(dark, "mobile-primary-blank");
         }
       }
 
-      if (isNearViewport(card)) applyCardVideoMode(card);
+      applyCardVideoMode(card);
     });
 
     if (typeof window._108Grid?.kickVisiblePlayback === "function") {
@@ -236,9 +256,14 @@
   }
 
   function showHover(card) {
-    const { example } = getCardVideos(card);
+    const { dark, example } = getCardVideos(card);
+    const mode = getMode();
     card.dataset.hovering = "1";
-    if (example && example.dataset.loaded !== "1") loadOne(example);
+    if (mode === "hover") {
+      if (dark && dark.dataset.loaded !== "1") loadOne(dark, "hover-secondary-blank");
+    } else {
+      if (example && example.dataset.loaded !== "1") loadOne(example, "hover-secondary-hover");
+    }
     applyCardVideoMode(card);
   }
 
@@ -248,33 +273,54 @@
   }
 
   function initCards() {
-    const desktop = isDesktop();
-    document.querySelectorAll(".motion-template_card").forEach(card => {
+    const tier = deviceTier();
+    dbg("initCards tier:", tier);
+    document.querySelectorAll(".motion-template_card").forEach((card, i) => {
       if (card.dataset.hoverInit === "1") return;
       card.dataset.hoverInit = "1";
+      dbg("initCard", i, card.querySelector(".motion-template_name")?.textContent?.trim() || "?");
 
-      const { pair, example } = getCardVideos(card);
-      if (!pair || !example) return;
-
-      Object.assign(example.style, {
-        position: "absolute",
-        inset: "0",
-        width: "100%",
-        height: "100%",
-        objectFit: "cover",
-        opacity: "0",
-        transition: "opacity 0.2s ease",
-        zIndex: "2",
-        pointerEvents: "none",
-        transform: "translateZ(0)",
-        backfaceVisibility: "hidden",
-        willChange: "opacity"
-      });
+      const { pair, dark, example } = getCardVideos(card);
+      if (!pair) return;
 
       pair.style.position = "relative";
       pair.style.overflow = "hidden";
+      pair.style.width = "100%";
+      pair.style.height = "100%";
 
-      if (desktop) {
+      if (dark) {
+        Object.assign(dark.style, {
+          position: "absolute",
+          inset: "0",
+          width: "100%",
+          height: "100%",
+          objectFit: "cover",
+          display: "block"
+        });
+      }
+
+      if (example) {
+        Object.assign(example.style, {
+          position: "absolute",
+          inset: "0",
+          width: "100%",
+          height: "100%",
+          objectFit: "cover",
+          display: "block",
+          opacity: "0",
+          transition: "opacity 0.2s ease",
+          zIndex: "2",
+          pointerEvents: "none",
+          transform: "translateZ(0)",
+          backfaceVisibility: "hidden",
+          willChange: "opacity"
+        });
+      }
+
+      stashAsLazy(dark);
+      stashAsLazy(example);
+
+      if (tier === "desktop") {
         card.addEventListener("mouseenter", () => showHover(card));
         card.addEventListener("mouseleave", () => hideHover(card));
       }
@@ -313,7 +359,9 @@
   }
 
   function setVideoDefaultMode(mode) {
-    document.body.setAttribute("data-video-default", normalizeMode(mode));
+    const m = normalizeMode(mode);
+    dbg("setVideoDefaultMode:", m, "tier:", deviceTier());
+    document.body.setAttribute("data-video-default", m);
     updateModeButtonsUI();
     document.querySelectorAll(".motion-template_card").forEach(applyCardVideoMode);
     refreshProductVideoLoading();
