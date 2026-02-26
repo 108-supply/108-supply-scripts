@@ -183,6 +183,66 @@
     const $  = (sel, root = document) => root.querySelector(sel);
     const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
     const norm = (s) => (s || "").trim().toLowerCase();
+    const GRID_STATE_KEY = "108:grid-state:v1";
+    const GRID_SCROLL_KEY = "108:grid-scroll:v1";
+
+    function safeSessionGet(key) {
+      try {
+        const raw = sessionStorage.getItem(key);
+        if (!raw) return null;
+        return JSON.parse(raw);
+      } catch (_) {
+        return null;
+      }
+    }
+
+    function safeSessionSet(key, value) {
+      try {
+        sessionStorage.setItem(key, JSON.stringify(value));
+      } catch (_) {}
+    }
+
+    function isBackForwardNavigation() {
+      try {
+        const nav = performance.getEntriesByType("navigation");
+        if (nav && nav[0] && nav[0].type === "back_forward") return true;
+      } catch (_) {}
+      try {
+        return performance.navigation && performance.navigation.type === 2;
+      } catch (_) {
+        return false;
+      }
+    }
+
+    window._108Grid = window._108Grid || {};
+    window._108Grid.readGridState = () => safeSessionGet(GRID_STATE_KEY);
+    window._108Grid.saveGridState = (patch) => {
+      const prev = safeSessionGet(GRID_STATE_KEY) || {};
+      safeSessionSet(GRID_STATE_KEY, {
+        ...prev,
+        ...patch,
+        path: location.pathname,
+        updatedAt: Date.now()
+      });
+    };
+    window._108Grid.saveGridScroll = () => {
+      safeSessionSet(GRID_SCROLL_KEY, {
+        path: location.pathname,
+        y: window.scrollY || 0,
+        updatedAt: Date.now()
+      });
+    };
+    window._108Grid.restoreGridScroll = () => {
+      if (!isBackForwardNavigation()) return;
+      const saved = safeSessionGet(GRID_SCROLL_KEY);
+      if (!saved || saved.path !== location.pathname) return;
+      const y = Number(saved.y);
+      if (!Number.isFinite(y) || y < 0) return;
+      const jumps = [0, 120, 350];
+      jumps.forEach((delay) => {
+        setTimeout(() => window.scrollTo(0, y), delay);
+      });
+    };
   
     function createEngine() {
       const S = CONFIG.selectors;
@@ -203,6 +263,16 @@
       const allCards = () => $$(S.item, grid);
       const isVisible = (el) => el.style.display !== "none";
       const getCategory = (card) => norm($(S.category, card)?.textContent);
+      const getSnapshot = () => ({
+        currentFilter,
+        limit,
+        limitsByFilter: { ...limitsByFilter },
+        viewSize: grid.getAttribute("data-size-grid") || ""
+      });
+      const persistState = () => {
+        if (typeof window._108Grid?.saveGridState !== "function") return;
+        window._108Grid.saveGridState(getSnapshot());
+      };
   
       const filteredList = () => {
         const cards = allCards();
@@ -304,15 +374,38 @@
         setFilter(val){
           currentFilter = norm(val) || "all";
           limit = limitsByFilter[currentFilter] ?? CONFIG.paging.initial;
+          persistState();
         },
         setView(size){
           grid.setAttribute("data-size-grid", size);
           const btn = viewButtons.find(b => b.getAttribute("data-size") === size);
           if (btn) setActiveView(btn);
+          persistState();
         },
         addMore(){
           limit += CONFIG.paging.more;
           limitsByFilter[currentFilter] = limit;
+          persistState();
+        },
+        restoreState(snapshot){
+          if (!snapshot || typeof snapshot !== "object") return;
+          const savedLimits = snapshot.limitsByFilter;
+          if (savedLimits && typeof savedLimits === "object") {
+            Object.keys(savedLimits).forEach((k) => {
+              const v = Number(savedLimits[k]);
+              if (Number.isFinite(v) && v >= CONFIG.paging.initial) {
+                limitsByFilter[norm(k) || "all"] = v;
+              }
+            });
+          }
+
+          const savedFilter = norm(snapshot.currentFilter) || "all";
+          currentFilter = savedFilter;
+          const savedLimit = Number(snapshot.limit);
+          if (Number.isFinite(savedLimit) && savedLimit >= CONFIG.paging.initial) {
+            limitsByFilter[currentFilter] = Math.max(limitsByFilter[currentFilter] || CONFIG.paging.initial, savedLimit);
+          }
+          limit = limitsByFilter[currentFilter] ?? CONFIG.paging.initial;
         },
   
         syncFilterActiveFromChecked,
@@ -339,8 +432,15 @@
     if (window._108Grid.engine) {
       const E = window._108Grid.engine;
       E.ensureRadioDefault();
+      const restored = window._108Grid.readGridState?.();
+      if (restored?.path === location.pathname) {
+        E.restoreState(restored);
+        const radioForFilter = E.radios.find(r => norm(r.value) === E.state.currentFilter);
+        if (radioForFilter) radioForFilter.checked = true;
+        if (restored.viewSize) E.setView(restored.viewSize);
+      }
       const initList = E.filteredList();
-      const keepInit = initList.slice(0, CONFIG.paging.initial);
+      const keepInit = initList.slice(0, E.state.limit);
   
       const cards = E.allCards();
       const keep = new Set(keepInit);
@@ -367,6 +467,11 @@
       }
   
       E.syncFilterActiveFromChecked();
+      window._108Grid.saveGridState?.({
+        currentFilter: E.state.currentFilter,
+        limit: E.state.limit
+      });
+      window._108Grid.restoreGridScroll?.();
       console.log("[Grid] engine ready");
     }
   })();
@@ -432,6 +537,33 @@
       const viewButtons = E.viewButtons;
       const radios = E.radios;
       const loadMoreBtn = document.querySelector(E.CONFIG.selectors.loadMoreBtn);
+      if (!window.__108GridPersistEventsBound__) {
+        window.__108GridPersistEventsBound__ = true;
+
+        window.addEventListener("pagehide", () => {
+          window._108Grid?.saveGridState?.({
+            currentFilter: E.state.currentFilter,
+            limit: E.state.limit
+          });
+          window._108Grid?.saveGridScroll?.();
+        });
+
+        window.addEventListener("beforeunload", () => {
+          window._108Grid?.saveGridScroll?.();
+        });
+
+        document.addEventListener("click", (ev) => {
+          const target = ev.target;
+          if (!(target instanceof Element)) return;
+          const link = target.closest(".motion-template_card a[href]");
+          if (!link) return;
+          window._108Grid?.saveGridState?.({
+            currentFilter: E.state.currentFilter,
+            limit: E.state.limit
+          });
+          window._108Grid?.saveGridScroll?.();
+        });
+      }
   
       // ✅ LENIS FIX: recalc scroll limits after ANY layout changes
       function refreshLenis() {
