@@ -19,12 +19,23 @@
     return card.dataset.hovering === "1" || card.classList.contains("hover-active");
   }
 
+  function isTouchDevice() {
+    return !!(
+      (window.matchMedia && window.matchMedia("(hover: none), (pointer: coarse)").matches) ||
+      navigator.maxTouchPoints > 0 ||
+      ("ontouchstart" in window)
+    );
+  }
+
   function getCardTargetVideo(card) {
     const dark = card.querySelector("video.video-dark");
     const hover = card.querySelector("video.video-hover");
     if (!dark && !hover) return null;
 
     const mode = getVideoMode();
+    if (isTouchDevice()) {
+      return mode === "main" ? (dark || hover) : (hover || dark);
+    }
     const hovering = isCardHovering(card);
 
     if (mode === "hover") {

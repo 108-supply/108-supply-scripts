@@ -1,4 +1,7 @@
 (() => {
+  if (window.__108_LIGHT_DARK_VIDEOS_INIT__) return;
+  window.__108_LIGHT_DARK_VIDEOS_INIT__ = true;
+
   // Product cards only: dark (main) + hover.
   // Supports mode switcher via data-video-default-btn="main|hover".
   const queue = new Set();
@@ -6,6 +9,23 @@
   let mutationTick = 0;
   const pauseTimers = new WeakMap();
   const FADE_MS = 200;
+  const DEBUG = window.__108VideoDebug !== false;
+  const touchMq = window.matchMedia ? window.matchMedia("(hover: none), (pointer: coarse)") : null;
+
+  function logDebug(...args) {
+    if (!DEBUG) return;
+    console.log("[108VideoDebug]", ...args);
+  }
+
+  function isTouchDevice() {
+    return !!((touchMq && touchMq.matches) || navigator.maxTouchPoints > 0 || ("ontouchstart" in window));
+  }
+
+  function cardDebugId(card) {
+    if (!card) return "unknown-card";
+    const link = card.querySelector("a.card_link_overlay");
+    return link?.getAttribute("href") || card.getAttribute("data-w-id") || "unknown-card";
+  }
 
   function normalizeMode(raw) {
     const m = String(raw || "").trim().toLowerCase();
@@ -38,6 +58,18 @@
 
   function sourceAttr(v) {
     return ensureSource(v).getAttribute("src") || "";
+  }
+
+  function clearLoadedState(v) {
+    delete v.dataset.loaded;
+    v.removeAttribute("data-loaded");
+  }
+
+  function unloadVideo(v) {
+    if (!v) return;
+    stashAsLazy(v);
+    clearLoadedState(v);
+    if (!v.paused) v.pause();
   }
 
   function stashAsLazy(v) {
@@ -111,6 +143,9 @@
   function getTargetVideo(card) {
     const { dark, hover } = getCardVideos(card);
     const mode = getMode();
+    if (isTouchDevice()) {
+      return mode === "main" ? (dark || hover) : (hover || dark);
+    }
     const hovering = card.dataset.hovering === "1" || card.classList.contains("hover-active");
 
     if (mode === "hover") {
@@ -155,6 +190,9 @@
     if (!v || v.dataset.loaded === "1") return;
     const src = v.dataset.src;
     if (!src) return;
+    const kind = v.classList.contains("video-dark") ? "dark" : (v.classList.contains("video-hover") ? "hover" : "video");
+    const card = getCard(v.closest(".motion-template_card"));
+    logDebug("attach-src", { card: cardDebugId(card), kind, src });
 
     const s = ensureSource(v);
     s.src = src;
@@ -165,6 +203,7 @@
 
       const card = getCard(v.closest(".motion-template_card"));
       if (!card) return;
+      logDebug("loadeddata", { card: cardDebugId(card), kind, mode: getMode(), touch: isTouchDevice() });
       if (!isCardVisible(card)) return;
       applyCardVideoMode(card);
     }, { once: true });
@@ -173,10 +212,11 @@
   }
 
   function refreshProductVideoLoading() {
+    const mode = getMode();
+    const touch = isTouchDevice();
     document.querySelectorAll(".motion-template_card").forEach(card => {
       const visible = isCardVisible(card);
       const { dark, hover } = getCardVideos(card);
-      const mode = getMode();
 
       if (!dark) return;
 
@@ -188,11 +228,22 @@
         return;
       }
 
-      // Keep dark available for quick swap in both modes.
-      if (dark.dataset.src && !sourceAttr(dark)) loadOne(dark);
-
-      // Hover loads on demand, but in hover-default preload visible cards.
-      if (hover && hover.dataset.src && !sourceAttr(hover) && mode === "hover") loadOne(hover);
+      if (touch) {
+        if (mode === "main") {
+          if (dark.dataset.src && !sourceAttr(dark)) loadOne(dark);
+        } else {
+          if (hover && hover.dataset.src && !sourceAttr(hover)) loadOne(hover);
+          if (sourceAttr(dark) || dark.dataset.loaded === "1") {
+            unloadVideo(dark);
+            logDebug("unload-dark-touch-default", { card: cardDebugId(card), mode });
+          }
+        }
+      } else {
+        // Desktop: keep dark available for quick hover swap.
+        if (dark.dataset.src && !sourceAttr(dark)) loadOne(dark);
+        // Hover loads on demand, but in hover-default preload visible cards.
+        if (hover && hover.dataset.src && !sourceAttr(hover) && mode === "hover") loadOne(hover);
+      }
 
       if (isNearViewport(card)) applyCardVideoMode(card);
     });
@@ -238,9 +289,11 @@
   }
 
   function initCards() {
+    const touch = isTouchDevice();
     document.querySelectorAll(".motion-template_card").forEach(card => {
       if (card.dataset.hoverInit === "1") return;
       card.dataset.hoverInit = "1";
+      logDebug("card-init", { card: cardDebugId(card), touch });
 
       const { pair, hover } = getCardVideos(card);
       if (!pair || !hover) return;
@@ -263,12 +316,17 @@
       pair.style.position = "relative";
       pair.style.overflow = "hidden";
 
-      card.addEventListener("mouseenter", () => showHover(card));
-      card.addEventListener("mouseleave", () => hideHover(card));
+      if (!touch) {
+        card.addEventListener("mouseenter", () => showHover(card));
+        card.addEventListener("mouseleave", () => hideHover(card));
+      } else {
+        card.dataset.hovering = "0";
+      }
     });
   }
 
   function initMobileToggle() {
+    if (isTouchDevice()) return;
     document.querySelectorAll(".show-examples-btn").forEach(btn => {
       if (btn.dataset.mobileHoverInit === "1") return;
       btn.dataset.mobileHoverInit = "1";
@@ -300,7 +358,9 @@
   }
 
   function setVideoDefaultMode(mode) {
-    document.body.setAttribute("data-video-default", normalizeMode(mode));
+    const next = normalizeMode(mode);
+    document.body.setAttribute("data-video-default", next);
+    logDebug("mode-change", { mode: next, touch: isTouchDevice() });
     updateModeButtonsUI();
     document.querySelectorAll(".motion-template_card").forEach(applyCardVideoMode);
     refreshProductVideoLoading();
