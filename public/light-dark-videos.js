@@ -74,6 +74,7 @@
     v.pause();
     const idx = _pendingQueue.findIndex(q => q.v === v);
     if (idx !== -1) _pendingQueue.splice(idx, 1);
+    const wasLoading = v.dataset.loading === "1";
     const s = ensureSource(v);
     const had = s.getAttribute("src") || v.getAttribute("src");
     s.removeAttribute("src");
@@ -83,7 +84,13 @@
     delete v.dataset.loaded;
     v.removeAttribute("data-loaded");
     delete v.dataset.loading;
-    _dbg("unloaded", v.className);
+    if (wasLoading) {
+      _activeLoads = Math.max(0, _activeLoads - 1);
+      _dbg("unloaded (was loading)", v.className, "active:", _activeLoads);
+    } else {
+      _dbg("unloaded", v.className);
+    }
+    _drainQueue();
   }
 
   function isCardVisible(card) {
@@ -241,6 +248,13 @@
     }, { once: true });
 
     v.load();
+
+    setTimeout(() => {
+      if (!done) {
+        _dbg("timeout", v.className, src.split("/").pop());
+        finish();
+      }
+    }, 12000);
   }
 
   function refreshProductVideoLoading() {
@@ -261,6 +275,8 @@
         if (hover && !hover.paused) hover.pause();
         return;
       }
+
+      if (dm !== "desktopFine" && !isNearViewport(card)) return;
 
       if (dm === "desktopFine") {
         if (dark.dataset.src && !sourceAttr(dark)) loadOne(dark, "desk-dark");
