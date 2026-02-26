@@ -1,58 +1,68 @@
 (() => {
-  if (window.__108_LIGHT_DARK_VIDEOS_INIT__) return;
-  window.__108_LIGHT_DARK_VIDEOS_INIT__ = true;
+  // 108™ Supply — Light/Dark Video Loader (rewrite)
+  // Build: 2026-02-26  (stamp)
+  // Goals:
+  // - Desktop: hover works, switcher works
+  // - iPad/mobile: load ONLY one variant per mode, no hover preloads, no "stuck at 9"
+  // - Load more: new cards init via MutationObserver + lazy via IntersectionObserver
 
-  // Product cards only: dark (main) + hover.
-  // Supports mode switcher via data-video-default-btn="main|hover".
-  const queue = new Set();
-  let scheduled = false;
-  let mutationTick = 0;
-  const pauseTimers = new WeakMap();
-  const FADE_MS = 200;
+  if (window.__108_VIDEO_LOADER_V2__) return;
+  window.__108_VIDEO_LOADER_V2__ = true;
 
-  /* ── Fix #1: device detection + concurrency cap ── */
-  const _fp = window.matchMedia && window.matchMedia("(hover: hover) and (pointer: fine)");
-  function _isDesktop() { return !!(_fp && _fp.matches); }
-  function _deviceMode() {
-    if (_isDesktop()) return "desktopFine";
-    return window.innerWidth < 768 ? "mobileSmall" : "iPadCoarse";
+  const BUILD = "2026-02-26-v2";
+  console.log("[VID] loader", BUILD);
+
+  // ---------- Config ----------
+  const CLS_CARD = ".motion-template_card";
+  const CLS_PAIR = ".video-pair--thumb, .video-pair";
+  const SEL_DARK = "video.video-dark";
+  const SEL_EXAMPLE = "video.video-example, video.video-hover";
+
+  const FADE_MS = 180;
+  const IO_MARGIN = "300px"; // load a bit before entering viewport
+
+  const CAP_IPAD = 3;
+  const CAP_MOBILE = 6;
+
+  const LOAD_TIMEOUT_MS = 12000; // watchdog: never get stuck
+  const NEAR_MARGIN_PX = 220;
+
+  // ---------- Device ----------
+  const mqDesktop = window.matchMedia?.("(hover: hover) and (pointer: fine)");
+  function tier() {
+    if (mqDesktop && mqDesktop.matches) return "desktop";
+    return window.innerWidth < 768 ? "mobile" : "ipad";
   }
-  function _dbg(/* ...args */) {
-    if (!window.__VID_DEBUG) return;
-    console.log("[VID]", _deviceMode(), ...arguments);
+  function cap() {
+    const t = tier();
+    if (t === "mobile") return CAP_MOBILE;
+    if (t === "ipad") return CAP_IPAD;
+    return 999; // desktop doesn't use this queue heavily
   }
 
-  let _activeLoads = 0;
-  const _IPAD_MAX = 3;
-  const _MOBILE_MAX = 6;
-  const _pendingQueue = [];
-  function _touchLoadCap() {
-    const dm = _deviceMode();
-    if (dm === "mobileSmall") return _MOBILE_MAX;
-    return _IPAD_MAX;
-  }
-
+  // ---------- Mode ----------
   function normalizeMode(raw) {
     const m = String(raw || "").trim().toLowerCase();
-    if (m === "hover" || m === "wow" || m === "inuse" || m === "in-use" || m === "in use" || m === "live") return "hover";
-    if (m === "main" || m === "dark" || m === "blank") return "main";
-    return "hover";
+    if (m === "main" || m === "blank" || m === "dark") return "main";   // Blank = dark
+    return "hover"; // In Use = example
   }
-
   function getMode() {
     return normalizeMode(document.body.getAttribute("data-video-default"));
   }
 
-  function detectButtonMode(btn) {
-    const byAttr = btn.getAttribute("data-video-default-btn");
-    if (byAttr) return normalizeMode(byAttr);
-    const txt = (btn.textContent || "").trim().toLowerCase();
-    if (txt.includes("blank")) return "main";
-    if (txt.includes("in use") || txt.includes("inuse") || txt.includes("wow") || txt.includes("live")) return "hover";
-    return null;
+  // ---------- Helpers ----------
+  function isVisible(el) {
+    if (!el) return false;
+    const cs = getComputedStyle(el);
+    return cs.display !== "none" && cs.visibility !== "hidden";
+  }
+  function isNearViewport(el) {
+    const r = el.getBoundingClientRect();
+    return r.bottom > -NEAR_MARGIN_PX && r.top < window.innerHeight + NEAR_MARGIN_PX;
   }
 
   function ensureSource(v) {
+    if (!v) return null;
     return v.querySelector("source") || (() => {
       const s = document.createElement("source");
       s.type = "video/mp4";
@@ -60,498 +70,348 @@
       return s;
     })();
   }
-
-  function sourceAttr(v) {
-    return ensureSource(v).getAttribute("src") || "";
+  function currentSrc(v) {
+    const s = ensureSource(v);
+    return (s && s.getAttribute("src")) || v.getAttribute("src") || "";
   }
-
-  function isUsableVideo(v) {
-    if (!v) return false;
-    if (v.dataset.loaded === "1") return true;
-    if (v.dataset.loading === "1") return true;
-    if (sourceAttr(v)) return true;
-    return false;
-  }
-
-  function stashAsLazy(v) {
+  function stashLazy(v) {
     if (!v) return;
     const s = ensureSource(v);
-    const src = s.getAttribute("src") || v.getAttribute("src") || "";
+    const src = currentSrc(v);
     if (src && !v.dataset.src) v.dataset.src = src;
-    s.removeAttribute("src");
+    if (s) s.removeAttribute("src");
     v.removeAttribute("src");
     v.preload = "none";
   }
-
-  function unloadVideo(v) {
+  function releaseVideo(v) {
+    // Hard release to free decoder memory (especially Safari)
     if (!v) return;
-    v.pause();
-    const idx = _pendingQueue.findIndex(q => q.v === v);
-    if (idx !== -1) _pendingQueue.splice(idx, 1);
-    const wasLoading = v.dataset.loading === "1";
+    try { v.pause(); } catch (_) {}
     const s = ensureSource(v);
-    const had = s.getAttribute("src") || v.getAttribute("src");
-    s.removeAttribute("src");
+    if (s) s.removeAttribute("src");
     v.removeAttribute("src");
     v.preload = "none";
-    if (had) { try { v.load(); } catch (_) {} }
     delete v.dataset.loaded;
-    v.removeAttribute("data-loaded");
     delete v.dataset.loading;
-    if (wasLoading) {
-      _activeLoads = Math.max(0, _activeLoads - 1);
-      _dbg("unloaded (was loading)", v.className, "active:", _activeLoads);
-    } else {
-      _dbg("unloaded", v.className);
-    }
-    _drainQueue();
+    try { v.load(); } catch (_) {}
   }
 
-  function isCardVisible(card) {
-    const cs = window.getComputedStyle(card);
-    return cs.display !== "none" && cs.visibility !== "hidden";
+  // ---------- Card parsing ----------
+  function getVideos(card) {
+    const pair = card?.querySelector(CLS_PAIR);
+    if (!pair) return { pair: null, dark: null, ex: null };
+    const dark = pair.querySelector(SEL_DARK);
+    const ex = pair.querySelector(SEL_EXAMPLE);
+    return { pair, dark, ex };
   }
 
-  function isNearViewport(el) {
-    const r = el.getBoundingClientRect();
-    return r.bottom > -120 && r.top < window.innerHeight + 120;
-  }
+  // ---------- Styling / visibility ----------
+  function applyBaseStyles(card) {
+    const { pair, dark, ex } = getVideos(card);
+    if (!pair) return;
 
-  function getCard(card) {
-    if (!card || !card.classList.contains("motion-template_card")) return null;
-    return card;
-  }
+    pair.style.position = "relative";
+    pair.style.overflow = "hidden";
+    pair.style.width = "100%";
+    pair.style.height = "100%";
 
-  function getCardVideos(card) {
-    const pair = card.querySelector(".video-pair--thumb") || card.querySelector(".video-pair");
-    if (!pair) return { pair: null, dark: null, hover: null };
-    const dark = pair.querySelector("video.video-dark");
-    const hover = pair.querySelector("video.video-example") || pair.querySelector("video.video-hover");
-    return { pair, dark, hover };
-  }
+    const fit = {
+      position: "absolute",
+      inset: "0",
+      width: "100%",
+      height: "100%",
+      objectFit: "cover",
+      display: "block",
+      transform: "translateZ(0)",
+      backfaceVisibility: "hidden"
+    };
 
-  function playIfReady(v) {
-    if (!v || v.readyState < 2) return;
-    if (v.paused) {
-      const p = v.play();
-      if (p && p.catch) p.catch(() => {});
-    }
-  }
-
-  function cancelScheduledPause(v) {
-    const t = pauseTimers.get(v);
-    if (t) {
-      clearTimeout(t);
-      pauseTimers.delete(v);
-    }
-  }
-
-  function schedulePauseAfterFade(video, card) {
-    if (!video) return;
-    cancelScheduledPause(video);
-    const t = setTimeout(() => {
-      const targetNow = getTargetVideo(card);
-      if (targetNow !== video && !video.paused) video.pause();
-      pauseTimers.delete(video);
-    }, FADE_MS);
-    pauseTimers.set(video, t);
-  }
-
-  function syncTo(source, target) {
-    if (!source || !target) return;
-    if (source.readyState < 2 || target.readyState < 2) return;
-    const drift = Math.abs((target.currentTime || 0) - (source.currentTime || 0));
-    if (drift < 0.08) return;
-    try { target.currentTime = source.currentTime; } catch (e) {}
-  }
-
-  function getTargetVideo(card) {
-    const { dark, hover } = getCardVideos(card);
-    const mode = getMode();
-    const hovering = card.dataset.hovering === "1" || card.classList.contains("hover-active");
-    const darkReady = isUsableVideo(dark);
-    const hoverReady = isUsableVideo(hover);
-
-    if (mode === "hover") {
-      if (hovering) {
-        if (darkReady) return dark;
-        if (hoverReady) return hover;
-        return null;
-      }
-      if (hoverReady) return hover;
-      if (darkReady) return dark;
-      return null;
+    if (dark) Object.assign(dark.style, fit);
+    if (ex) {
+      Object.assign(ex.style, fit, {
+        transition: `opacity ${FADE_MS}ms ease`,
+        zIndex: "2",
+        pointerEvents: "none",
+        willChange: "opacity"
+      });
     }
 
-    if (hovering) {
-      if (hoverReady) return hover;
-      if (darkReady) return dark;
-      return null;
-    }
-    if (darkReady) return dark;
-    if (hoverReady) return hover;
-    return null;
+    // IMPORTANT: On touch devices, don't show an empty dark layer by default.
+    // We always display the active mode video; the other stays hidden to avoid "blank rows".
+    // Desktop hover will override.
   }
 
-  function applyCardVideoMode(card) {
-    const { dark, hover } = getCardVideos(card);
-    if (!dark && !hover) return;
-
-    const target = getTargetVideo(card);
-    if (!target) return;
-    const source = target === dark ? hover : dark;
-    syncTo(source, target);
-
-    if (dark) {
-      dark.style.opacity = target === dark ? "1" : "0";
-      if (target === dark) {
-        cancelScheduledPause(dark);
-      } else {
-        schedulePauseAfterFade(dark, card);
-      }
-    }
-
-    if (hover) {
-      hover.style.opacity = target === hover ? "1" : "0";
-      if (target === hover) {
-        cancelScheduledPause(hover);
-      } else {
-        schedulePauseAfterFade(hover, card);
-      }
-    }
-
-    playIfReady(target);
+  function setOpacity(card, show) {
+    // show: "ex" or "dark"
+    const { dark, ex } = getVideos(card);
+    if (dark) dark.style.opacity = (show === "dark") ? "1" : "0";
+    if (ex) ex.style.opacity = (show === "ex") ? "1" : "0";
   }
 
-  function _drainQueue() {
-    while (_pendingQueue.length && (_isDesktop() || _activeLoads < _touchLoadCap())) {
-      const { v, tag } = _pendingQueue.shift();
-      if (v.dataset.loaded !== "1" && v.dataset.loading !== "1") loadOne(v, tag + "(q)");
+  function activeVariant() {
+    // In Use => example, Blank => dark
+    return getMode() === "main" ? "dark" : "ex";
+  }
+
+  // ---------- Robust loader queue (fixes "9 and stuck") ----------
+  let inFlight = 0;
+  const q = []; // { v, kind, priority, card }
+
+  function enqueue(v, kind, priority = 0, card = null) {
+    if (!v) return;
+    if (v.dataset.loaded === "1" || v.dataset.loading === "1") return;
+    if (!v.dataset.src) return;
+
+    // avoid duplicates
+    if (q.some(item => item.v === v)) return;
+
+    q.push({ v, kind, priority, card });
+    q.sort((a, b) => b.priority - a.priority);
+    pump();
+  }
+
+  function pump() {
+    const limit = cap();
+    while (inFlight < limit && q.length) {
+      const item = q.shift();
+      startLoad(item.v, item.kind, item.card);
     }
   }
 
-  function loadOne(v, tag, prioritizeFront) {
-    if (!v || v.dataset.loaded === "1" || v.dataset.loading === "1") return;
+  function startLoad(v, kind, card) {
     const src = v.dataset.src;
     if (!src) return;
 
-    if (!_isDesktop() && _activeLoads >= _touchLoadCap()) {
-      if (!_pendingQueue.some(q => q.v === v)) {
-        const item = { v, tag: tag || "?" };
-        if (prioritizeFront) _pendingQueue.unshift(item);
-        else _pendingQueue.push(item);
-        _dbg("queued", v.className, tag, "active:", _activeLoads);
-      }
-      return;
-    }
-
     v.dataset.loading = "1";
-    _activeLoads++;
-    _dbg("load", v.className, tag || "?", "active:", _activeLoads, src.split("/").pop());
+    inFlight++;
 
     const s = ensureSource(v);
-    s.src = src;
+    if (s) s.src = src;
+    else v.setAttribute("src", src);
 
     let done = false;
     const finish = () => {
       if (done) return;
       done = true;
       delete v.dataset.loading;
-      _activeLoads = Math.max(0, _activeLoads - 1);
-      _drainQueue();
+      inFlight = Math.max(0, inFlight - 1);
+      pump();
+      // After load, apply mode to avoid blackouts
+      if (card && isVisible(card)) applyMode(card);
     };
 
-    v.addEventListener("loadeddata", () => {
+    const onLoaded = () => {
       v.dataset.loaded = "1";
-      v.setAttribute("data-loaded", "1");
-      _dbg("loaded", v.className, src.split("/").pop(), "active:", _activeLoads - 1);
       finish();
-
-      const card = getCard(v.closest(".motion-template_card"));
-      if (!card) return;
-      if (!isCardVisible(card)) return;
-      applyCardVideoMode(card);
-    }, { once: true });
-
-    v.addEventListener("error", () => {
-      _dbg("error", v.className, src.split("/").pop());
-      finish();
-    }, { once: true });
-
-    v.load();
-
-    setTimeout(() => {
-      if (!done) {
-        _dbg("timeout", v.className, src.split("/").pop());
-        finish();
-      }
-    }, 12000);
-  }
-
-  function refreshProductVideoLoading() {
-    const dm = _deviceMode();
-    const mode = getMode();
-    _dbg("refresh", "mode:", mode);
-
-    document.querySelectorAll(".motion-template_card").forEach(card => {
-      const visible = isCardVisible(card);
-      const { dark, hover } = getCardVideos(card);
-
-      if (!dark) return;
-
-      if (!visible) {
-        if (sourceAttr(dark) && dark.dataset.loaded !== "1") stashAsLazy(dark);
-        if (hover && sourceAttr(hover) && hover.dataset.loaded !== "1") stashAsLazy(hover);
-        if (!dark.paused) dark.pause();
-        if (hover && !hover.paused) hover.pause();
-        return;
-      }
-
-      if (dm !== "desktopFine" && !isNearViewport(card)) return;
-
-      if (dm === "desktopFine") {
-        if (dark.dataset.src && !sourceAttr(dark)) loadOne(dark, "desk-dark");
-        if (hover && hover.dataset.src && !sourceAttr(hover) && mode === "hover") loadOne(hover, "desk-hover");
-      } else if (dm === "iPadCoarse") {
-        if (mode === "hover") {
-          if (hover && hover.dataset.src && !sourceAttr(hover)) loadOne(hover, "ipad-hover", true);
-          if (dark && dark.dataset.loaded === "1" && isUsableVideo(hover)) unloadVideo(dark);
-        } else {
-          if (dark.dataset.src && !sourceAttr(dark)) loadOne(dark, "ipad-dark", true);
-          if (hover && hover.dataset.loaded === "1" && isUsableVideo(dark)) unloadVideo(hover);
-        }
-      } else {
-        if (mode === "hover") {
-          if (hover && hover.dataset.src && !sourceAttr(hover)) loadOne(hover, "mob-hover", true);
-        } else {
-          if (dark.dataset.src && !sourceAttr(dark)) loadOne(dark, "mob-dark", true);
-        }
-      }
-
-      if (isNearViewport(card)) applyCardVideoMode(card);
-    });
-
-    if (typeof window._108Grid?.kickVisiblePlayback === "function") {
-      window._108Grid.kickVisiblePlayback();
-      setTimeout(() => window._108Grid.kickVisiblePlayback(), 120);
-    }
-  }
-
-  function flushQueue() {
-    scheduled = false;
-    let n = 0;
-    for (const v of queue) {
-      queue.delete(v);
-      loadOne(v);
-      n++;
-      if (n >= 6) break;
-    }
-    if (queue.size) scheduleFlush();
-  }
-
-  function scheduleFlush() {
-    if (scheduled) return;
-    scheduled = true;
-    if ("requestIdleCallback" in window) {
-      requestIdleCallback(flushQueue, { timeout: 250 });
-    } else {
-      setTimeout(flushQueue, 60);
-    }
-  }
-
-  function showHover(card) {
-    const { hover } = getCardVideos(card);
-    card.dataset.hovering = "1";
-    if (hover && hover.dataset.loaded !== "1") loadOne(hover);
-    applyCardVideoMode(card);
-  }
-
-  function hideHover(card) {
-    card.dataset.hovering = "0";
-    applyCardVideoMode(card);
-  }
-
-  /* ── Fix #2: per-card IO for lazy load (product page + iPad scroll) ── */
-  const _cardIO = new IntersectionObserver(entries => {
-    const dm = _deviceMode();
-    const mode = getMode();
-    entries.forEach(entry => {
-      if (!entry.isIntersecting) return;
-      const card = entry.target;
-      if (!isCardVisible(card)) return;
-      const { dark, hover } = getCardVideos(card);
-      if (dm === "desktopFine") {
-        if (dark && dark.dataset.src && !sourceAttr(dark) && dark.dataset.loaded !== "1" && !dark.dataset.loading) loadOne(dark, "io-desk-dark");
-        if (hover && hover.dataset.src && !sourceAttr(hover) && hover.dataset.loaded !== "1" && !hover.dataset.loading && mode === "hover") loadOne(hover, "io-desk-hover");
-      } else if (dm === "iPadCoarse") {
-        if (mode === "hover") {
-          if (hover && hover.dataset.src && !sourceAttr(hover) && hover.dataset.loaded !== "1" && !hover.dataset.loading) loadOne(hover, "io-ipad-hover", true);
-        } else {
-          if (dark && dark.dataset.src && !sourceAttr(dark) && dark.dataset.loaded !== "1" && !dark.dataset.loading) loadOne(dark, "io-ipad-dark", true);
-        }
-      } else {
-        if (mode === "hover") {
-          if (hover && hover.dataset.src && !sourceAttr(hover) && hover.dataset.loaded !== "1" && !hover.dataset.loading) loadOne(hover, "io-mob-hover", true);
-        } else {
-          if (dark && dark.dataset.src && !sourceAttr(dark) && dark.dataset.loaded !== "1" && !dark.dataset.loading) loadOne(dark, "io-mob-dark", true);
-        }
-      }
-      applyCardVideoMode(card);
-    });
-  }, { rootMargin: "200px", threshold: 0.01 });
-
-  function initCards() {
-    const dm = _deviceMode();
-    _dbg("initCards", dm);
-    document.querySelectorAll(".motion-template_card").forEach((card, i) => {
-      if (card.dataset.hoverInit === "1") return;
-      card.dataset.hoverInit = "1";
-      _dbg("initCard", i, card.querySelector(".motion-template_name")?.textContent?.trim() || "?");
-
-      const { pair, dark, hover } = getCardVideos(card);
-      if (!pair) return;
-
-      pair.style.position = "relative";
-      pair.style.overflow = "hidden";
-      pair.style.width = "100%";
-      pair.style.height = "100%";
-
-      if (dark) {
-        Object.assign(dark.style, {
-          position: "absolute", inset: "0",
-          width: "100%", height: "100%",
-          objectFit: "cover", display: "block"
-        });
-      }
-
-      if (hover) {
-        Object.assign(hover.style, {
-          position: "absolute", inset: "0",
-          width: "100%", height: "100%",
-          objectFit: "cover", display: "block",
-          opacity: "0",
-          transition: "opacity 0.2s ease",
-          zIndex: "2",
-          pointerEvents: "none",
-          transform: "translateZ(0)",
-          backfaceVisibility: "hidden",
-          willChange: "opacity"
-        });
-      }
-
-      _cardIO.observe(card);
-
-      if (dm === "desktopFine") {
-        card.addEventListener("mouseenter", () => showHover(card));
-        card.addEventListener("mouseleave", () => hideHover(card));
-      }
-    });
-  }
-
-  function initMobileToggle() {
-    document.querySelectorAll(".show-examples-btn").forEach(btn => {
-      if (btn.dataset.mobileHoverInit === "1") return;
-      btn.dataset.mobileHoverInit = "1";
-
-      btn.addEventListener("click", () => {
-        const card = getCard(btn.closest(".motion-template_card"));
-        if (!card) return;
-        const active = card.classList.contains("hover-active");
-        if (!active) {
-          card.classList.add("hover-active");
-          btn.textContent = "Hide examples";
-          showHover(card);
-        } else {
-          card.classList.remove("hover-active");
-          btn.textContent = "Show examples";
-          hideHover(card);
-        }
-      });
-    });
-  }
-
-  function updateModeButtonsUI() {
-    const mode = getMode();
-    document.querySelectorAll("[data-video-default-btn], .live-button").forEach(btn => {
-      const v = detectButtonMode(btn);
-      if (!v) return;
-      btn.classList.toggle("is-active", v === mode);
-    });
-  }
-
-  function setVideoDefaultMode(mode) {
-    document.body.setAttribute("data-video-default", normalizeMode(mode));
-    updateModeButtonsUI();
-    document.querySelectorAll(".motion-template_card").forEach(applyCardVideoMode);
-    refreshProductVideoLoading();
-  }
-
-  function initVideoModeSwitcher() {
-    const buttons = document.querySelectorAll("[data-video-default-btn], .live-button");
-    if (!document.body.getAttribute("data-video-default")) {
-      const activeBtn = Array.from(buttons).find(b => b.classList.contains("is-active"));
-      const inferred = activeBtn ? detectButtonMode(activeBtn) : null;
-      if (inferred) document.body.setAttribute("data-video-default", inferred);
-    }
-
-    buttons.forEach(btn => {
-      if (btn.dataset.videoDefaultInit === "1") return;
-      btn.dataset.videoDefaultInit = "1";
-      btn.addEventListener("click", (e) => {
-        e.preventDefault();
-        const mode = detectButtonMode(btn);
-        if (!mode) return;
-        setVideoDefaultMode(mode);
-      });
-    });
-    updateModeButtonsUI();
-  }
-
-  function init() {
-    initCards();
-    initMobileToggle();
-    initVideoModeSwitcher();
-
-    let tries = 0;
-    const boot = () => {
-      tries++;
-      const cards = document.querySelectorAll(".motion-template_card");
-      const hasHidden = Array.from(cards).some(c => window.getComputedStyle(c).display === "none");
-      const gridReady = !!window._108Grid?.engine;
-      if (hasHidden || gridReady || tries >= 20) {
-        refreshProductVideoLoading();
-        return;
-      }
-      requestAnimationFrame(boot);
     };
-    requestAnimationFrame(boot);
+    const onError = () => {
+      // Do not get stuck: free slot even on error
+      finish();
+    };
+
+    v.addEventListener("loadeddata", onLoaded, { once: true });
+    v.addEventListener("error", onError, { once: true });
+
+    try { v.load(); } catch (_) {}
+
+    // Watchdog: Safari sometimes never fires events under memory pressure
+    setTimeout(() => finish(), LOAD_TIMEOUT_MS);
   }
 
-  window._108Grid = window._108Grid || {};
-  window._108Grid.refreshLightVideoObserver = () => {};
-  window._108Grid.refreshProductVideoLoading = refreshProductVideoLoading;
-  window._108Grid.setVideoDefaultMode = setVideoDefaultMode;
+  // ---------- Mode logic (NO blackout on touch) ----------
+  function applyMode(card) {
+    const { dark, ex } = getVideos(card);
+    if (!dark && !ex) return;
+
+    const t = tier();
+    const want = activeVariant(); // "ex" or "dark"
+
+    // Desktop: allow hover swap
+    if (t === "desktop") {
+      const hovering = card.matches(":hover") || card.classList.contains("hover-active");
+      if (getMode() === "hover") {
+        // In Use: show example; on hover show dark
+        setOpacity(card, hovering ? "dark" : "ex");
+      } else {
+        // Blank: show dark; on hover show example (optional)
+        setOpacity(card, hovering ? "ex" : "dark");
+      }
+      return;
+    }
+
+    // Touch: NEVER switch visibility to a variant until it's at least loading/loaded.
+    // This kills the "blank after switch to Blank" bug.
+    const wantVideo = (want === "dark") ? dark : ex;
+    const fallbackVideo = (want === "dark") ? ex : dark;
+
+    const wantUsable =
+      !!wantVideo &&
+      (wantVideo.dataset.loaded === "1" || wantVideo.dataset.loading === "1" || currentSrc(wantVideo));
+
+    if (wantUsable) {
+      setOpacity(card, want);
+    } else {
+      // keep fallback visible until target becomes usable (no blackout)
+      if (fallbackVideo) {
+        setOpacity(card, want === "dark" ? "ex" : "dark");
+      }
+    }
+  }
+
+  function scheduleActiveLoadsForCard(card) {
+    if (!isVisible(card)) return;
+    const { dark, ex } = getVideos(card);
+
+    // Always lazy-stash first
+    stashLazy(dark);
+    stashLazy(ex);
+
+    const want = activeVariant();
+    const t = tier();
+
+    // Desktop: pre-load only what is needed, hover loads the other on demand
+    if (t === "desktop") {
+      if (want === "ex" && ex) enqueue(ex, "ex", 2, card);
+      if (want === "dark" && dark) enqueue(dark, "dark", 2, card);
+      return;
+    }
+
+    // Touch: load ONLY the active variant (priority if near)
+    const near = isNearViewport(card);
+    const pr = near ? 10 : 1;
+
+    if (want === "ex" && ex) enqueue(ex, "ex", pr, card);
+    if (want === "dark" && dark) enqueue(dark, "dark", pr, card);
+
+    // After the wanted one becomes loaded, we can release the other to save memory
+    // BUT do it safely: never release while the wanted one isn't loaded yet.
+    if (want === "ex" && dark && ex) {
+      if (ex.dataset.loaded === "1") releaseVideo(dark);
+    }
+    if (want === "dark" && dark && ex) {
+      if (dark.dataset.loaded === "1") releaseVideo(ex);
+    }
+  }
+
+  // ---------- Observers ----------
+  const io = new IntersectionObserver((entries) => {
+    for (const e of entries) {
+      if (!e.isIntersecting) continue;
+      const card = e.target;
+      scheduleActiveLoadsForCard(card);
+      applyMode(card);
+    }
+  }, { rootMargin: IO_MARGIN, threshold: 0.01 });
+
+  function initCard(card) {
+    if (!card || card.dataset.__vidInit === "1") return;
+    card.dataset.__vidInit = "1";
+
+    applyBaseStyles(card);
+
+    // stash initial src so we control loading
+    const { dark, ex } = getVideos(card);
+    stashLazy(dark);
+    stashLazy(ex);
+
+    // initial opacity: show current mode's layer (even before loaded)
+    const want = activeVariant();
+    if (tier() === "desktop") {
+      // desktop: in use shows example, blank shows dark
+      setOpacity(card, want);
+    } else {
+      // touch: show desired layer ONLY if it’s at least usable, otherwise show fallback
+      setOpacity(card, want === "dark" ? "ex" : "dark"); // temporary; applyMode will correct after enqueue
+      applyMode(card);
+    }
+
+    io.observe(card);
+  }
+
+  function initAll() {
+    document.querySelectorAll(CLS_CARD).forEach(initCard);
+  }
+
+  // Mode switcher via body attribute changes
+  const bodyAttrObs = new MutationObserver(() => {
+    // When mode changes, refresh visible cards with high priority
+    document.querySelectorAll(CLS_CARD).forEach(card => {
+      if (!isVisible(card)) return;
+      if (tier() !== "desktop" && !isNearViewport(card)) return;
+      scheduleActiveLoadsForCard(card);
+      applyMode(card);
+    });
+  });
+  bodyAttrObs.observe(document.body, { attributes: true, attributeFilter: ["data-video-default"] });
+
+  // MutationObserver for load more / CMS inserts
+  const domObs = new MutationObserver((muts) => {
+    // init only newly added cards
+    for (const m of muts) {
+      for (const node of m.addedNodes) {
+        if (!(node instanceof HTMLElement)) continue;
+        if (node.matches?.(CLS_CARD)) initCard(node);
+        node.querySelectorAll?.(CLS_CARD)?.forEach(initCard);
+      }
+    }
+    // after DOM changes, give a small kick
+    setTimeout(() => {
+      document.querySelectorAll(CLS_CARD).forEach(card => {
+        if (!isVisible(card)) return;
+        if (tier() !== "desktop" && !isNearViewport(card)) return;
+        scheduleActiveLoadsForCard(card);
+        applyMode(card);
+      });
+    }, 120);
+  });
+  domObs.observe(document.documentElement, { childList: true, subtree: true });
+
+  // Desktop hover: load the secondary variant only when needed
+  function bindDesktopHover() {
+    if (tier() !== "desktop") return;
+
+    document.querySelectorAll(CLS_CARD).forEach(card => {
+      if (card.dataset.__vidHover === "1") return;
+      card.dataset.__vidHover = "1";
+
+      card.addEventListener("mouseenter", () => {
+        const { dark, ex } = getVideos(card);
+        // In Use: hover loads dark; Blank: hover loads example (optional)
+        const mode = getMode();
+        if (mode === "hover" && dark) enqueue(dark, "dark", 50, card);
+        if (mode === "main" && ex) enqueue(ex, "ex", 50, card);
+        applyMode(card);
+      });
+
+      card.addEventListener("mouseleave", () => applyMode(card));
+    });
+  }
+
+  function boot() {
+    initAll();
+    bindDesktopHover();
+    // initial load for near viewport
+    document.querySelectorAll(CLS_CARD).forEach(card => {
+      if (!isVisible(card)) return;
+      if (tier() !== "desktop" && !isNearViewport(card)) return;
+      scheduleActiveLoadsForCard(card);
+      applyMode(card);
+    });
+  }
 
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", init);
+    document.addEventListener("DOMContentLoaded", boot);
   } else {
-    init();
+    boot();
   }
 
-  new MutationObserver(() => refreshProductVideoLoading())
-    .observe(document.body, { attributes: true, attributeFilter: ["class", "data-video-default"] });
-
-  new MutationObserver(() => {
-    if (mutationTick) return;
-    mutationTick = requestAnimationFrame(() => {
-      mutationTick = 0;
-      refreshProductVideoLoading();
-      initCards();
-      initMobileToggle();
-      initVideoModeSwitcher();
-      if (typeof window._108Grid?.kickVisiblePlayback === "function") {
-        setTimeout(() => window._108Grid.kickVisiblePlayback(), 160);
-      }
-    });
-  }).observe(document.documentElement, { childList: true, subtree: true });
+  // Expose a tiny debug hook
+  window._108Video = {
+    build: BUILD,
+    tier,
+    getMode,
+    pump,
+    inFlight: () => inFlight,
+    queueLen: () => q.length
+  };
 })();
