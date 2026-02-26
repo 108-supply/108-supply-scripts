@@ -9,8 +9,8 @@
 
   function normalizeMode(raw) {
     const m = String(raw || "").trim().toLowerCase();
-    if (m === "main" || m === "inuse" || m === "use") return "main";
-    if (m === "hover" || m === "wow") return "hover";
+    if (m === "hover" || m === "wow" || m === "inuse" || m === "in-use" || m === "in use" || m === "live") return "hover";
+    if (m === "main" || m === "dark" || m === "blank") return "main";
     return "hover";
   }
 
@@ -86,6 +86,7 @@
     const t = setTimeout(() => {
       const targetNow = getTargetVideo(card);
       if (targetNow !== video && !video.paused) video.pause();
+      if (targetNow !== video) video.style.visibility = "hidden";
       pauseTimers.delete(video);
     }, FADE_MS);
     pauseTimers.set(video, t);
@@ -122,6 +123,7 @@
     syncTo(source, target);
 
     if (dark) {
+      dark.style.visibility = "visible";
       dark.style.opacity = target === dark ? "1" : "0";
       if (target === dark) {
         cancelScheduledPause(dark);
@@ -131,6 +133,7 @@
     }
 
     if (hover) {
+      hover.style.visibility = "visible";
       hover.style.opacity = target === hover ? "1" : "0";
       if (target === hover) {
         cancelScheduledPause(hover);
@@ -244,12 +247,17 @@
         height: "100%",
         objectFit: "cover",
         opacity: "0",
+        visibility: "hidden",
         transition: "opacity 0.2s ease",
         zIndex: "2",
-        pointerEvents: "none"
+        pointerEvents: "none",
+        transform: "translateZ(0)",
+        backfaceVisibility: "hidden",
+        willChange: "opacity"
       });
 
       pair.style.position = "relative";
+      pair.style.overflow = "hidden";
 
       card.addEventListener("mouseenter", () => showHover(card));
       card.addEventListener("mouseleave", () => hideHover(card));

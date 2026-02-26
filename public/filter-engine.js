@@ -6,8 +6,8 @@
 (() => {
   function normalizeVideoMode(raw) {
     const m = String(raw || "").trim().toLowerCase();
-    if (m === "hover" || m === "wow") return "hover";
-    if (m === "main" || m === "inuse" || m === "use") return "main";
+    if (m === "hover" || m === "wow" || m === "inuse" || m === "in-use" || m === "in use" || m === "live") return "hover";
+    if (m === "main" || m === "dark" || m === "blank") return "main";
     return "hover";
   }
 
