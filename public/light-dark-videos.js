@@ -18,7 +18,16 @@
   }
 
   function isTouchDevice() {
-    return !!((touchMq && touchMq.matches) || navigator.maxTouchPoints > 0 || ("ontouchstart" in window));
+    const coarse = !!(window.matchMedia && (
+      window.matchMedia("(pointer: coarse)").matches ||
+      window.matchMedia("(any-pointer: coarse)").matches
+    ));
+    const noHover = !!(window.matchMedia && (
+      window.matchMedia("(hover: none)").matches ||
+      window.matchMedia("(any-hover: none)").matches
+    ));
+    const touchPoints = Number(navigator.maxTouchPoints || 0);
+    return coarse || (touchPoints > 1 && noHover) || !!(touchMq && touchMq.matches);
   }
 
   function cardDebugId(card) {
@@ -314,8 +323,8 @@
   function initCards() {
     const touch = isTouchDevice();
     document.querySelectorAll(".motion-template_card").forEach(card => {
-      if (card.dataset.hoverInit === "1") return;
-      card.dataset.hoverInit = "1";
+      const firstInit = card.dataset.hoverInit !== "1";
+      if (firstInit) card.dataset.hoverInit = "1";
       logDebug("card-init", { card: cardDebugId(card), touch });
 
       const { pair, example } = getCardVideos(card);
@@ -356,7 +365,10 @@
       pair.style.position = "relative";
       pair.style.overflow = "hidden";
 
-      if (!touch) {
+      if (!touch && card.dataset.hoverBind === "1") {
+        // already bound
+      } else if (!touch) {
+        card.dataset.hoverBind = "1";
         card.addEventListener("mouseenter", () => showHover(card));
         card.addEventListener("mouseleave", () => hideHover(card));
       } else {

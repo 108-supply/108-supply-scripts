@@ -20,11 +20,16 @@
   }
 
   function isTouchDevice() {
-    return !!(
-      (window.matchMedia && window.matchMedia("(hover: none), (pointer: coarse)").matches) ||
-      navigator.maxTouchPoints > 0 ||
-      ("ontouchstart" in window)
-    );
+    const coarse = !!(window.matchMedia && (
+      window.matchMedia("(pointer: coarse)").matches ||
+      window.matchMedia("(any-pointer: coarse)").matches
+    ));
+    const noHover = !!(window.matchMedia && (
+      window.matchMedia("(hover: none)").matches ||
+      window.matchMedia("(any-hover: none)").matches
+    ));
+    const touchPoints = Number(navigator.maxTouchPoints || 0);
+    return coarse || (touchPoints > 1 && noHover);
   }
 
   function getCardTargetVideo(card) {
