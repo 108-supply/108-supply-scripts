@@ -19,35 +19,21 @@
     return card.dataset.hovering === "1" || card.classList.contains("hover-active");
   }
 
-  function isTouchDevice() {
-    const ua = navigator.userAgent || "";
-    const platform = navigator.platform || "";
-    const isIPad = /iPad/i.test(ua) || (platform === "MacIntel" && Number(navigator.maxTouchPoints || 0) > 1);
-    const hasDesktopHover = !!(window.matchMedia && window.matchMedia("(hover: hover) and (pointer: fine)").matches);
-    const touchPoints = Number(navigator.maxTouchPoints || 0);
-    if (isIPad) return true;
-    if (hasDesktopHover) return false;
-    return touchPoints > 0;
-  }
-
   function getCardTargetVideo(card) {
     const dark = card.querySelector("video.video-dark");
-    const example = card.querySelector("video.video-example");
-    if (!dark && !example) return null;
+    const hover = card.querySelector("video.video-example") || card.querySelector("video.video-hover");
+    if (!dark && !hover) return null;
 
     const mode = getVideoMode();
-    if (isTouchDevice()) {
-      return mode === "main" ? (dark || example) : (example || dark);
-    }
     const hovering = isCardHovering(card);
 
     if (mode === "hover") {
-      if (hovering) return dark || example;
-      return example || dark;
+      if (hovering) return dark || hover;
+      return (hover && hover.dataset.loaded === "1") ? hover : dark;
     }
 
-    if (hovering) return example || dark;
-    return dark || example;
+    if (hovering) return (hover && hover.dataset.loaded === "1") ? hover : dark;
+    return dark || hover;
   }
 
   function isCardInViewport(card) {
@@ -167,7 +153,6 @@
     if (!document.hidden) kickVisiblePlayback();
   });
 
-  
 })();
 
 
@@ -486,7 +471,6 @@
         limit: E.state.limit
       });
       window._108Grid.restoreGridScroll?.();
-      
     }
   })();
 
@@ -1021,7 +1005,6 @@
         if (defaultBtn) defaultBtn.classList.add("is-active");
       }
   
-      
     }
   
     window._108Grid = window._108Grid || {};
