@@ -29,22 +29,22 @@
 
   function getCardTargetVideo(card) {
     const dark = card.querySelector("video.video-dark");
-    const hover = card.querySelector("video.video-hover");
-    if (!dark && !hover) return null;
+    const example = card.querySelector("video.video-example, video.video-hover");
+    if (!dark && !example) return null;
 
     const mode = getVideoMode();
     if (isTouchDevice()) {
-      return mode === "main" ? (dark || hover) : (hover || dark);
+      return mode === "main" ? (dark || example) : (example || dark);
     }
     const hovering = isCardHovering(card);
 
     if (mode === "hover") {
-      if (hovering) return dark || hover;
-      return (hover && hover.dataset.loaded === "1") ? hover : dark;
+      if (hovering) return dark || example;
+      return example || dark;
     }
 
-    if (hovering) return (hover && hover.dataset.loaded === "1") ? hover : dark;
-    return dark || hover;
+    if (hovering) return example || dark;
+    return dark || example;
   }
 
   function isCardInViewport(card) {

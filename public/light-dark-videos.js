@@ -99,10 +99,10 @@
 
   function getCardVideos(card) {
     const pair = card.querySelector(".video-pair--thumb") || card.querySelector(".video-pair");
-    if (!pair) return { pair: null, dark: null, hover: null };
+    if (!pair) return { pair: null, dark: null, example: null };
     const dark = pair.querySelector("video.video-dark");
-    const hover = pair.querySelector("video.video-hover");
-    return { pair, dark, hover };
+    const example = pair.querySelector("video.video-example, video.video-hover");
+    return { pair, dark, example };
   }
 
   function playIfReady(v) {
@@ -141,29 +141,29 @@
   }
 
   function getTargetVideo(card) {
-    const { dark, hover } = getCardVideos(card);
+    const { dark, example } = getCardVideos(card);
     const mode = getMode();
     if (isTouchDevice()) {
-      return mode === "main" ? (dark || hover) : (hover || dark);
+      return mode === "main" ? (dark || example) : (example || dark);
     }
     const hovering = card.dataset.hovering === "1" || card.classList.contains("hover-active");
 
     if (mode === "hover") {
-      if (hovering) return dark || hover;
-      return (hover && hover.dataset.loaded === "1") ? hover : dark;
+      if (hovering) return dark || example;
+      return example || dark;
     }
 
-    if (hovering) return (hover && hover.dataset.loaded === "1") ? hover : dark;
-    return dark || hover;
+    if (hovering) return example || dark;
+    return dark || example;
   }
 
   function applyCardVideoMode(card) {
-    const { dark, hover } = getCardVideos(card);
-    if (!dark && !hover) return;
+    const { dark, example } = getCardVideos(card);
+    if (!dark && !example) return;
 
     const touch = isTouchDevice();
     const target = getTargetVideo(card);
-    const source = target === dark ? hover : dark;
+    const source = target === dark ? example : dark;
     if (touch) {
       // Touch Safari hardening: no crossfade/layering; render one stable stream only.
       if (dark) {
@@ -173,12 +173,12 @@
         cancelScheduledPause(dark);
         if (target !== dark && !dark.paused) dark.pause();
       }
-      if (hover) {
-        hover.style.transition = "none";
-        hover.style.opacity = target === hover ? "1" : "0";
-        hover.style.display = target === hover ? "block" : "none";
-        cancelScheduledPause(hover);
-        if (target !== hover && !hover.paused) hover.pause();
+      if (example) {
+        example.style.transition = "none";
+        example.style.opacity = target === example ? "1" : "0";
+        example.style.display = target === example ? "block" : "none";
+        cancelScheduledPause(example);
+        if (target !== example && !example.paused) example.pause();
       }
     } else {
       syncTo(source, target);
@@ -193,13 +193,13 @@
         }
       }
 
-      if (hover) {
-        hover.style.display = "block";
-        hover.style.opacity = target === hover ? "1" : "0";
-        if (target === hover) {
-          cancelScheduledPause(hover);
+      if (example) {
+        example.style.display = "block";
+        example.style.opacity = target === example ? "1" : "0";
+        if (target === example) {
+          cancelScheduledPause(example);
         } else {
-          schedulePauseAfterFade(hover, card);
+          schedulePauseAfterFade(example, card);
         }
       }
     }
@@ -211,7 +211,7 @@
     if (!v || v.dataset.loaded === "1") return;
     const src = v.dataset.src;
     if (!src) return;
-    const kind = v.classList.contains("video-dark") ? "dark" : (v.classList.contains("video-hover") ? "hover" : "video");
+    const kind = v.classList.contains("video-dark") ? "dark" : ((v.classList.contains("video-example") || v.classList.contains("video-hover")) ? "example" : "video");
     const card = getCard(v.closest(".motion-template_card"));
     logDebug("attach-src", { card: cardDebugId(card), kind, src });
 
@@ -237,17 +237,17 @@
     const touch = isTouchDevice();
     document.querySelectorAll(".motion-template_card").forEach(card => {
       const visible = isCardVisible(card);
-      const { dark, hover } = getCardVideos(card);
+      const { dark, example } = getCardVideos(card);
       const target = getTargetVideo(card);
-      const other = target === dark ? hover : dark;
+      const other = target === dark ? example : dark;
 
       if (!dark) return;
 
       if (!visible) {
         if (sourceAttr(dark) && dark.dataset.loaded !== "1") stashAsLazy(dark);
-        if (hover && sourceAttr(hover) && hover.dataset.loaded !== "1") stashAsLazy(hover);
+        if (example && sourceAttr(example) && example.dataset.loaded !== "1") stashAsLazy(example);
         if (!dark.paused) dark.pause();
-        if (hover && !hover.paused) hover.pause();
+        if (example && !example.paused) example.pause();
         return;
       }
 
@@ -318,11 +318,11 @@
       card.dataset.hoverInit = "1";
       logDebug("card-init", { card: cardDebugId(card), touch });
 
-      const { pair, hover } = getCardVideos(card);
-      if (!pair || !hover) return;
+      const { pair, example } = getCardVideos(card);
+      if (!pair || !example) return;
 
       if (!touch) {
-        Object.assign(hover.style, {
+        Object.assign(example.style, {
           position: "absolute",
           inset: "0",
           width: "100%",
@@ -337,7 +337,7 @@
           willChange: "opacity"
         });
       } else {
-        Object.assign(hover.style, {
+        Object.assign(example.style, {
           position: "static",
           inset: "",
           width: "100%",
