@@ -1,9 +1,20 @@
 (() => {
-  // Listing cards only: default dark video + hover video on hover.
-  // No light/dark mode switching.
+  // Product cards only: dark (main) + hover.
+  // Supports mode switcher via data-video-default-btn="main|hover".
   const queue = new Set();
   let scheduled = false;
   let mutationTick = 0;
+
+  function normalizeMode(raw) {
+    const m = String(raw || "").trim().toLowerCase();
+    if (m === "main" || m === "inuse" || m === "use") return "main";
+    if (m === "hover" || m === "wow") return "hover";
+    return "hover";
+  }
+
+  function getMode() {
+    return normalizeMode(document.body.getAttribute("data-video-default"));
+  }
 
   function ensureSource(v) {
     return v.querySelector("source") || (() => {
@@ -59,6 +70,49 @@
     }
   }
 
+  function syncTo(source, target) {
+    if (!source || !target) return;
+    if (source.readyState < 2 || target.readyState < 2) return;
+    const drift = Math.abs((target.currentTime || 0) - (source.currentTime || 0));
+    if (drift < 0.08) return;
+    try { target.currentTime = source.currentTime; } catch (e) {}
+  }
+
+  function getTargetVideo(card) {
+    const { dark, hover } = getCardVideos(card);
+    const mode = getMode();
+    const hovering = card.dataset.hovering === "1" || card.classList.contains("hover-active");
+
+    if (mode === "hover") {
+      if (hovering) return dark || hover;
+      return (hover && hover.dataset.loaded === "1") ? hover : dark;
+    }
+
+    if (hovering) return (hover && hover.dataset.loaded === "1") ? hover : dark;
+    return dark || hover;
+  }
+
+  function applyCardVideoMode(card) {
+    const { dark, hover } = getCardVideos(card);
+    if (!dark && !hover) return;
+
+    const target = getTargetVideo(card);
+    const source = target === dark ? hover : dark;
+    syncTo(source, target);
+
+    if (dark) {
+      dark.style.opacity = target === dark ? "1" : "0";
+      if (target !== dark && !dark.paused) dark.pause();
+    }
+
+    if (hover) {
+      hover.style.opacity = target === hover ? "1" : "0";
+      if (target !== hover && !hover.paused) hover.pause();
+    }
+
+    playIfReady(target);
+  }
+
   function loadOne(v) {
     if (!v || v.dataset.loaded === "1") return;
     const src = v.dataset.src;
@@ -66,6 +120,7 @@
 
     const s = ensureSource(v);
     s.src = src;
+
     v.addEventListener("loadeddata", () => {
       v.dataset.loaded = "1";
       v.setAttribute("data-loaded", "1");
@@ -74,7 +129,7 @@
       if (!card) return;
       if (!isCardVisible(card)) return;
       if (!isNearViewport(card)) return;
-      if (v.classList.contains("video-dark")) playIfReady(v);
+      applyCardVideoMode(card);
     }, { once: true });
 
     v.load();
@@ -84,22 +139,25 @@
     document.querySelectorAll(".motion-template_card").forEach(card => {
       const visible = isCardVisible(card);
       const { dark, hover } = getCardVideos(card);
-
-      // Hover is always lazy until interaction.
-      if (hover && sourceAttr(hover) && hover.dataset.loaded !== "1") {
-        stashAsLazy(hover);
-      }
+      const mode = getMode();
 
       if (!dark) return;
 
       if (!visible) {
         if (sourceAttr(dark) && dark.dataset.loaded !== "1") stashAsLazy(dark);
+        if (hover && sourceAttr(hover) && hover.dataset.loaded !== "1") stashAsLazy(hover);
         if (!dark.paused) dark.pause();
+        if (hover && !hover.paused) hover.pause();
         return;
       }
 
+      // Keep dark available for quick swap in both modes.
       if (dark.dataset.src && !sourceAttr(dark)) loadOne(dark);
-      if (isNearViewport(card)) playIfReady(dark);
+
+      // Hover loads on demand, but in hover-default preload visible cards.
+      if (hover && hover.dataset.src && !sourceAttr(hover) && mode === "hover") loadOne(hover);
+
+      if (isNearViewport(card)) applyCardVideoMode(card);
     });
 
     if (typeof window._108Grid?.kickVisiblePlayback === "function") {
@@ -132,19 +190,14 @@
 
   function showHover(card) {
     const { hover } = getCardVideos(card);
-    if (!hover) return;
-    if (hover.dataset.loaded !== "1") loadOne(hover);
-    hover.style.opacity = "1";
-    playIfReady(hover);
+    card.dataset.hovering = "1";
+    if (hover && hover.dataset.loaded !== "1") loadOne(hover);
+    applyCardVideoMode(card);
   }
 
   function hideHover(card) {
-    const { hover } = getCardVideos(card);
-    if (!hover) return;
-    hover.style.opacity = "0";
-    setTimeout(() => {
-      if (!hover.paused) hover.pause();
-    }, 200);
+    card.dataset.hovering = "0";
+    applyCardVideoMode(card);
   }
 
   function initCards() {
@@ -196,9 +249,37 @@
     });
   }
 
+  function updateModeButtonsUI() {
+    const mode = getMode();
+    document.querySelectorAll("[data-video-default-btn]").forEach(btn => {
+      const v = normalizeMode(btn.getAttribute("data-video-default-btn"));
+      btn.classList.toggle("is-active", v === mode);
+    });
+  }
+
+  function setVideoDefaultMode(mode) {
+    document.body.setAttribute("data-video-default", normalizeMode(mode));
+    updateModeButtonsUI();
+    document.querySelectorAll(".motion-template_card").forEach(applyCardVideoMode);
+    refreshProductVideoLoading();
+  }
+
+  function initVideoModeSwitcher() {
+    document.querySelectorAll("[data-video-default-btn]").forEach(btn => {
+      if (btn.dataset.videoDefaultInit === "1") return;
+      btn.dataset.videoDefaultInit = "1";
+      btn.addEventListener("click", (e) => {
+        e.preventDefault();
+        setVideoDefaultMode(btn.getAttribute("data-video-default-btn"));
+      });
+    });
+    updateModeButtonsUI();
+  }
+
   function init() {
     initCards();
     initMobileToggle();
+    initVideoModeSwitcher();
 
     let tries = 0;
     const boot = () => {
@@ -216,9 +297,9 @@
   }
 
   window._108Grid = window._108Grid || {};
-  // Keep compatibility with existing hooks in filter-engine:
   window._108Grid.refreshLightVideoObserver = () => {};
   window._108Grid.refreshProductVideoLoading = refreshProductVideoLoading;
+  window._108Grid.setVideoDefaultMode = setVideoDefaultMode;
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", init);
@@ -227,7 +308,7 @@
   }
 
   new MutationObserver(() => refreshProductVideoLoading())
-    .observe(document.body, { attributes: true, attributeFilter: ["class"] });
+    .observe(document.body, { attributes: true, attributeFilter: ["class", "data-video-default"] });
 
   new MutationObserver(() => {
     if (mutationTick) return;
@@ -236,6 +317,7 @@
       refreshProductVideoLoading();
       initCards();
       initMobileToggle();
+      initVideoModeSwitcher();
     });
   }).observe(document.documentElement, { childList: true, subtree: true });
 })();
