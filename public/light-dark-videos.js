@@ -9,7 +9,7 @@
   let mutationTick = 0;
   const pauseTimers = new WeakMap();
   const FADE_MS = 200;
-  const DEBUG = window.__108VideoDebug !== false;
+  const DEBUG = window.__108VideoDebug === true;
   const touchMq = window.matchMedia ? window.matchMedia("(hover: none), (pointer: coarse)") : null;
 
   function logDebug(...args) {
@@ -217,6 +217,8 @@
     document.querySelectorAll(".motion-template_card").forEach(card => {
       const visible = isCardVisible(card);
       const { dark, hover } = getCardVideos(card);
+      const target = getTargetVideo(card);
+      const other = target === dark ? hover : dark;
 
       if (!dark) return;
 
@@ -229,20 +231,18 @@
       }
 
       if (touch) {
-        if (mode === "main") {
-          if (dark.dataset.src && !sourceAttr(dark)) loadOne(dark);
-        } else {
-          if (hover && hover.dataset.src && !sourceAttr(hover)) loadOne(hover);
-          if (sourceAttr(dark) || dark.dataset.loaded === "1") {
-            unloadVideo(dark);
-            logDebug("unload-dark-touch-default", { card: cardDebugId(card), mode });
-          }
+        if (target && target.dataset.src && !sourceAttr(target)) loadOne(target);
+        if (other && (sourceAttr(other) || other.dataset.loaded === "1")) {
+          unloadVideo(other);
+          logDebug("unload-non-target-touch", { card: cardDebugId(card), mode });
+        }
+        if (mode === "hover" && dark && (sourceAttr(dark) || dark.dataset.loaded === "1")) {
+          unloadVideo(dark);
+          logDebug("unload-dark-touch-default", { card: cardDebugId(card), mode });
         }
       } else {
-        // Desktop: keep dark available for quick hover swap.
-        if (dark.dataset.src && !sourceAttr(dark)) loadOne(dark);
-        // Hover loads on demand, but in hover-default preload visible cards.
-        if (hover && hover.dataset.src && !sourceAttr(hover) && mode === "hover") loadOne(hover);
+        // Desktop: load only currently needed variant; second one loads on demand (hover/switch).
+        if (target && target.dataset.src && !sourceAttr(target)) loadOne(target);
       }
 
       if (isNearViewport(card)) applyCardVideoMode(card);
@@ -277,9 +277,11 @@
   }
 
   function showHover(card) {
-    const { hover } = getCardVideos(card);
+    const targetBefore = getTargetVideo(card);
     card.dataset.hovering = "1";
-    if (hover && hover.dataset.loaded !== "1") loadOne(hover);
+    const targetAfter = getTargetVideo(card);
+    const target = targetAfter || targetBefore;
+    if (target && target.dataset.loaded !== "1") loadOne(target);
     applyCardVideoMode(card);
   }
 
