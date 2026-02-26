@@ -10,7 +10,7 @@
   const pauseTimers = new WeakMap();
   const FADE_MS = 200;
   const DEBUG = window.__108VideoDebug === true;
-  const touchMq = window.matchMedia ? window.matchMedia("(hover: none), (pointer: coarse)") : null;
+  const desktopHoverMq = window.matchMedia ? window.matchMedia("(hover: hover) and (pointer: fine)") : null;
 
   function logDebug(...args) {
     if (!DEBUG) return;
@@ -18,16 +18,14 @@
   }
 
   function isTouchDevice() {
-    const coarse = !!(window.matchMedia && (
-      window.matchMedia("(pointer: coarse)").matches ||
-      window.matchMedia("(any-pointer: coarse)").matches
-    ));
-    const noHover = !!(window.matchMedia && (
-      window.matchMedia("(hover: none)").matches ||
-      window.matchMedia("(any-hover: none)").matches
-    ));
+    const ua = navigator.userAgent || "";
+    const platform = navigator.platform || "";
+    const isIPad = /iPad/i.test(ua) || (platform === "MacIntel" && Number(navigator.maxTouchPoints || 0) > 1);
+    const hasDesktopHover = !!(desktopHoverMq && desktopHoverMq.matches);
     const touchPoints = Number(navigator.maxTouchPoints || 0);
-    return coarse || (touchPoints > 1 && noHover) || !!(touchMq && touchMq.matches);
+    if (isIPad) return true;
+    if (hasDesktopHover) return false;
+    return touchPoints > 0;
   }
 
   function cardDebugId(card) {
@@ -110,7 +108,7 @@
     const pair = card.querySelector(".video-pair--thumb") || card.querySelector(".video-pair");
     if (!pair) return { pair: null, dark: null, example: null };
     const dark = pair.querySelector("video.video-dark");
-    const example = pair.querySelector("video.video-example, video.video-hover");
+    const example = pair.querySelector("video.video-example");
     return { pair, dark, example };
   }
 
@@ -220,7 +218,7 @@
     if (!v || v.dataset.loaded === "1") return;
     const src = v.dataset.src;
     if (!src) return;
-    const kind = v.classList.contains("video-dark") ? "dark" : ((v.classList.contains("video-example") || v.classList.contains("video-hover")) ? "example" : "video");
+    const kind = v.classList.contains("video-dark") ? "dark" : (v.classList.contains("video-example") ? "example" : "video");
     const card = getCard(v.closest(".motion-template_card"));
     logDebug("attach-src", { card: cardDebugId(card), kind, src });
 
@@ -337,6 +335,7 @@
           width: "100%",
           height: "100%",
           objectFit: "cover",
+          display: "block",
           opacity: "0",
           transition: "opacity 0.2s ease",
           zIndex: "2",
@@ -352,6 +351,7 @@
           width: "100%",
           height: "100%",
           objectFit: "cover",
+          display: "block",
           opacity: "1",
           transition: "none",
           zIndex: "",

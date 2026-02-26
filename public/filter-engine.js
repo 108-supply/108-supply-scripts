@@ -20,21 +20,19 @@
   }
 
   function isTouchDevice() {
-    const coarse = !!(window.matchMedia && (
-      window.matchMedia("(pointer: coarse)").matches ||
-      window.matchMedia("(any-pointer: coarse)").matches
-    ));
-    const noHover = !!(window.matchMedia && (
-      window.matchMedia("(hover: none)").matches ||
-      window.matchMedia("(any-hover: none)").matches
-    ));
+    const ua = navigator.userAgent || "";
+    const platform = navigator.platform || "";
+    const isIPad = /iPad/i.test(ua) || (platform === "MacIntel" && Number(navigator.maxTouchPoints || 0) > 1);
+    const hasDesktopHover = !!(window.matchMedia && window.matchMedia("(hover: hover) and (pointer: fine)").matches);
     const touchPoints = Number(navigator.maxTouchPoints || 0);
-    return coarse || (touchPoints > 1 && noHover);
+    if (isIPad) return true;
+    if (hasDesktopHover) return false;
+    return touchPoints > 0;
   }
 
   function getCardTargetVideo(card) {
     const dark = card.querySelector("video.video-dark");
-    const example = card.querySelector("video.video-example, video.video-hover");
+    const example = card.querySelector("video.video-example");
     if (!dark && !example) return null;
 
     const mode = getVideoMode();
