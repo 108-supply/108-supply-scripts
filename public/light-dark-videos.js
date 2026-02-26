@@ -95,7 +95,6 @@
     const t = setTimeout(() => {
       const targetNow = getTargetVideo(card);
       if (targetNow !== video && !video.paused) video.pause();
-      if (targetNow !== video) video.style.visibility = "hidden";
       pauseTimers.delete(video);
     }, FADE_MS);
     pauseTimers.set(video, t);
@@ -132,7 +131,6 @@
     syncTo(source, target);
 
     if (dark) {
-      dark.style.visibility = "visible";
       dark.style.opacity = target === dark ? "1" : "0";
       if (target === dark) {
         cancelScheduledPause(dark);
@@ -142,7 +140,6 @@
     }
 
     if (hover) {
-      hover.style.visibility = "visible";
       hover.style.opacity = target === hover ? "1" : "0";
       if (target === hover) {
         cancelScheduledPause(hover);
@@ -256,7 +253,6 @@
         height: "100%",
         objectFit: "cover",
         opacity: "0",
-        visibility: "hidden",
         transition: "opacity 0.2s ease",
         zIndex: "2",
         pointerEvents: "none",
