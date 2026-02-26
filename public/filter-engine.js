@@ -28,14 +28,12 @@
     const hovering = isCardHovering(card);
 
     if (mode === "hover") {
-      if (hovering && dark && dark.dataset.loaded === "1") return dark;
-      if (hover && hover.dataset.loaded === "1") return hover;
-      return null;
+      if (hovering) return dark || hover;
+      return (hover && hover.dataset.loaded === "1") ? hover : dark;
     }
 
-    if (hovering && hover && hover.dataset.loaded === "1") return hover;
-    if (dark && dark.dataset.loaded === "1") return dark;
-    return null;
+    if (hovering) return (hover && hover.dataset.loaded === "1") ? hover : dark;
+    return dark || hover;
   }
 
   function isCardInViewport(card) {
@@ -155,6 +153,7 @@
     if (!document.hidden) kickVisiblePlayback();
   });
 
+  
 })();
 
 
@@ -473,6 +472,7 @@
         limit: E.state.limit
       });
       window._108Grid.restoreGridScroll?.();
+      
     }
   })();
 
@@ -1007,6 +1007,7 @@
         if (defaultBtn) defaultBtn.classList.add("is-active");
       }
   
+      
     }
   
     window._108Grid = window._108Grid || {};
