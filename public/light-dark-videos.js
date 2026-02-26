@@ -8,6 +8,10 @@
   const pauseTimers = new WeakMap();
   const FADE_MS = 200;
 
+  let _activeLoads = 0;
+  const _MAX_CONCURRENT = 3;
+  const _loadQueue = [];
+
   const _finePointer = window.matchMedia && window.matchMedia("(hover: hover) and (pointer: fine)");
   const _mobileWidth = 768;
   function isDesktop() { return !!(_finePointer && _finePointer.matches); }
@@ -59,6 +63,23 @@
     s.removeAttribute("src");
     v.removeAttribute("src");
     v.preload = "none";
+  }
+
+  function unloadVideo(v) {
+    if (!v) return;
+    v.pause();
+    const qi = _loadQueue.findIndex(item => item.v === v);
+    if (qi !== -1) _loadQueue.splice(qi, 1);
+    const s = ensureSource(v);
+    const hadSrc = s.getAttribute("src") || v.getAttribute("src");
+    s.removeAttribute("src");
+    v.removeAttribute("src");
+    v.preload = "none";
+    if (hadSrc) { try { v.load(); } catch (e) {} }
+    delete v.dataset.loaded;
+    v.removeAttribute("data-loaded");
+    delete v.dataset.loading;
+    dbg("unloaded", v.className);
   }
 
   function isCardVisible(card) {
@@ -161,19 +182,39 @@
   }
 
   function loadOne(v, reason) {
-    if (!v || v.dataset.loaded === "1") return;
+    if (!v || v.dataset.loaded === "1" || v.dataset.loading === "1") return;
     const src = v.dataset.src;
     if (!src) return;
 
-    dbg("loadOne", v.className, "reason:", reason || "unknown", "src:", src.split("/").pop());
+    if (!isDesktop() && _activeLoads >= _MAX_CONCURRENT) {
+      if (!_loadQueue.some(item => item.v === v)) {
+        _loadQueue.push({ v, reason });
+        dbg("queued", v.className, reason, "active:", _activeLoads, "qLen:", _loadQueue.length);
+      }
+      return;
+    }
+
+    v.dataset.loading = "1";
+    _activeLoads++;
+    dbg("loadOne", v.className, "reason:", reason || "unknown", "active:", _activeLoads, "src:", src.split("/").pop());
 
     const s = ensureSource(v);
     s.src = src;
 
+    let cleaned = false;
+    const done = () => {
+      if (cleaned) return;
+      cleaned = true;
+      delete v.dataset.loading;
+      _activeLoads = Math.max(0, _activeLoads - 1);
+      processLoadQueue();
+    };
+
     v.addEventListener("loadeddata", () => {
       v.dataset.loaded = "1";
       v.setAttribute("data-loaded", "1");
-      dbg("loaded", v.className, src.split("/").pop());
+      dbg("loaded", v.className, src.split("/").pop(), "active:", _activeLoads - 1);
+      done();
 
       const card = getCard(v.closest(".motion-template_card"));
       if (!card) return;
@@ -181,7 +222,21 @@
       applyCardVideoMode(card);
     }, { once: true });
 
+    v.addEventListener("error", () => {
+      dbg("loadError", v.className, src.split("/").pop());
+      done();
+    }, { once: true });
+
     v.load();
+  }
+
+  function processLoadQueue() {
+    while (_loadQueue.length > 0 && (isDesktop() || _activeLoads < _MAX_CONCURRENT)) {
+      const { v, reason } = _loadQueue.shift();
+      if (v.dataset.loaded !== "1" && v.dataset.loading !== "1") {
+        loadOne(v, reason + " (q)");
+      }
+    }
   }
 
   function refreshProductVideoLoading() {
@@ -213,15 +268,14 @@
       } else if (tier === "tablet") {
         if (mode === "hover") {
           if (example && example.dataset.src && !sourceAttr(example)) loadOne(example, "tablet-primary-hover");
+          if (dark && dark.dataset.loaded === "1") unloadVideo(dark);
         } else {
           if (dark && dark.dataset.src && !sourceAttr(dark)) loadOne(dark, "tablet-switcher-blank");
+          if (example && example.dataset.loaded === "1") unloadVideo(example);
         }
       } else {
-        if (mode === "hover") {
-          if (example && example.dataset.src && !sourceAttr(example)) loadOne(example, "mobile-primary-hover");
-        } else {
-          if (dark && dark.dataset.src && !sourceAttr(dark)) loadOne(dark, "mobile-primary-blank");
-        }
+        if (example && example.dataset.src && !sourceAttr(example)) loadOne(example, "mobile-primary");
+        if (dark && dark.dataset.loaded === "1") unloadVideo(dark);
       }
 
       applyCardVideoMode(card);
@@ -272,6 +326,25 @@
     applyCardVideoMode(card);
   }
 
+  const _cardIO = new IntersectionObserver((entries) => {
+    const tier = deviceTier();
+    const mode = getMode();
+    entries.forEach(entry => {
+      if (!entry.isIntersecting) return;
+      const card = entry.target;
+      if (!isCardVisible(card)) return;
+      const { dark, example } = getCardVideos(card);
+      if (tier === "mobile") {
+        if (example && example.dataset.src && !sourceAttr(example) && example.dataset.loaded !== "1" && example.dataset.loading !== "1") loadOne(example, "mobile-io");
+      } else if (mode === "hover") {
+        if (example && example.dataset.src && !sourceAttr(example) && example.dataset.loaded !== "1" && example.dataset.loading !== "1") loadOne(example, tier + "-io-hover");
+      } else {
+        if (dark && dark.dataset.src && !sourceAttr(dark) && dark.dataset.loaded !== "1" && dark.dataset.loading !== "1") loadOne(dark, tier + "-io-blank");
+      }
+      applyCardVideoMode(card);
+    });
+  }, { rootMargin: "200px", threshold: 0.01 });
+
   function initCards() {
     const tier = deviceTier();
     dbg("initCards tier:", tier);
@@ -319,6 +392,8 @@
 
       stashAsLazy(dark);
       stashAsLazy(example);
+
+      _cardIO.observe(card);
 
       if (tier === "desktop") {
         card.addEventListener("mouseenter", () => showHover(card));
