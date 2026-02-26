@@ -59,6 +59,14 @@
     return ensureSource(v).getAttribute("src") || "";
   }
 
+  function isUsableVideo(v) {
+    if (!v) return false;
+    if (v.dataset.loaded === "1") return true;
+    if (v.dataset.loading === "1") return true;
+    if (sourceAttr(v)) return true;
+    return false;
+  }
+
   function stashAsLazy(v) {
     if (!v) return;
     const s = ensureSource(v);
@@ -155,27 +163,27 @@
     const { dark, hover } = getCardVideos(card);
     const mode = getMode();
     const hovering = card.dataset.hovering === "1" || card.classList.contains("hover-active");
-    const darkLoaded = !!(dark && dark.dataset.loaded === "1");
-    const hoverLoaded = !!(hover && hover.dataset.loaded === "1");
+    const darkReady = isUsableVideo(dark);
+    const hoverReady = isUsableVideo(hover);
 
     if (mode === "hover") {
       if (hovering) {
-        if (darkLoaded) return dark;
-        if (hoverLoaded) return hover;
+        if (darkReady) return dark;
+        if (hoverReady) return hover;
         return null;
       }
-      if (hoverLoaded) return hover;
-      if (darkLoaded) return dark;
+      if (hoverReady) return hover;
+      if (darkReady) return dark;
       return null;
     }
 
     if (hovering) {
-      if (hoverLoaded) return hover;
-      if (darkLoaded) return dark;
+      if (hoverReady) return hover;
+      if (darkReady) return dark;
       return null;
     }
-    if (darkLoaded) return dark;
-    if (hoverLoaded) return hover;
+    if (darkReady) return dark;
+    if (hoverReady) return hover;
     return null;
   }
 

@@ -24,29 +24,35 @@
     const hover = card.querySelector("video.video-example") || card.querySelector("video.video-hover");
     if (!dark && !hover) return null;
 
+    const sourceAssigned = (v) => {
+      if (!v) return false;
+      const s = v.querySelector("source");
+      return !!((s && s.getAttribute("src")) || v.getAttribute("src"));
+    };
+
     const mode = getVideoMode();
     const hovering = isCardHovering(card);
-    const darkLoaded = !!(dark && dark.dataset.loaded === "1");
-    const hoverLoaded = !!(hover && hover.dataset.loaded === "1");
+    const darkReady = !!(dark && (dark.dataset.loaded === "1" || dark.dataset.loading === "1" || sourceAssigned(dark)));
+    const hoverReady = !!(hover && (hover.dataset.loaded === "1" || hover.dataset.loading === "1" || sourceAssigned(hover)));
 
     if (mode === "hover") {
       if (hovering) {
-        if (darkLoaded) return dark;
-        if (hoverLoaded) return hover;
+        if (darkReady) return dark;
+        if (hoverReady) return hover;
         return null;
       }
-      if (hoverLoaded) return hover;
-      if (darkLoaded) return dark;
+      if (hoverReady) return hover;
+      if (darkReady) return dark;
       return null;
     }
 
     if (hovering) {
-      if (hoverLoaded) return hover;
-      if (darkLoaded) return dark;
+      if (hoverReady) return hover;
+      if (darkReady) return dark;
       return null;
     }
-    if (darkLoaded) return dark;
-    if (hoverLoaded) return hover;
+    if (darkReady) return dark;
+    if (hoverReady) return hover;
     return null;
   }
 
