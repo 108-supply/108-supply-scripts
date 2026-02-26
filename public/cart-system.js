@@ -667,9 +667,7 @@
             pinContentHeight(Math.max(startH, CFG.EMPTY_PIN_H_PX));
             try {
               await Promise.all([fadeOutFooter(), dust(itemEl)]);
-            } catch (err) {
-              console.warn('Cart remove animation error:', err);
-            }
+            } catch (err) {}
             if (CFG.HOLD_AFTER_DUST) await new Promise(r => setTimeout(r, CFG.HOLD_AFTER_DUST));
             try { itemEl.remove(); } catch {}
             wrapper.style.display = 'none';
@@ -693,9 +691,7 @@
           } else {
             try {
               await dust(itemEl);
-            } catch (err) {
-              console.warn('Cart remove animation error:', err);
-            }
+            } catch (err) {}
             if (CFG.HOLD_AFTER_DUST) await new Promise(r => setTimeout(r, CFG.HOLD_AFTER_DUST));
           }
           await collapseWithFLIP(itemEl);
@@ -824,8 +820,6 @@
         if (cart.length === 0) return alert('Your cart is empty!');
         if (typeof window.__A108_CHECKOUT_HANDLER__ === 'function') {
           window.__A108_CHECKOUT_HANDLER__(cart);
-        } else {
-          console.warn('No checkout handler.');
         }
       });
     }
@@ -863,7 +857,6 @@
 // CHECKOUT HANDLER
 // ===================================
 window.__A108_CHECKOUT_HANDLER__ = async function(cart) {
-  console.log('🛒 Opening Checkout');
 
   if (!window.Paddle) {
     alert('Paddle not loaded!');
@@ -1099,7 +1092,7 @@ window.__A108_CHECKOUT_HANDLER__ = async function(cart) {
   // BACK BUTTON
   backBtn.onclick = async function(e) {
     e.preventDefault();
-    console.log('Back button clicked');
+    
 
     if (checkoutResizeObserver) {
       checkoutResizeObserver.disconnect();
@@ -1140,7 +1133,7 @@ window.__A108_CHECKOUT_HANDLER__ = async function(cart) {
     await Promise.all([fadeOut(container), fadeOut(backBtn)]);
 
     // Close Paddle
-    try { window.Paddle.Checkout.close(); } catch (err) { console.log('Paddle close error:', err); }
+    try { window.Paddle.Checkout.close(); } catch (err) {}
 
     // Hide checkout
     container.style.display = 'none';
@@ -1212,5 +1205,5 @@ window.__A108_CHECKOUT_HANDLER__ = async function(cart) {
     }
   });
 
-  console.log('✅ Paddle opened');
+  
 };

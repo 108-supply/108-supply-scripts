@@ -153,7 +153,7 @@
     if (!document.hidden) kickVisiblePlayback();
   });
 
-  console.log('[VideoViewport] Initialized - videos pause when off-screen');
+  
 })();
 
 
@@ -247,7 +247,7 @@
     function createEngine() {
       const S = CONFIG.selectors;
       const grid = $(S.grid);
-      if (!grid) return console.warn("[Grid] Missing grid", S.grid);
+      if (!grid) return;
   
       const viewButtons = $$(S.viewBtn);
       const loadMoreBtn = $(S.loadMoreBtn);
@@ -472,7 +472,7 @@
         limit: E.state.limit
       });
       window._108Grid.restoreGridScroll?.();
-      console.log("[Grid] engine ready");
+      
     }
   })();
 
@@ -528,8 +528,8 @@
   
     function initAnimator() {
       const E = window._108Grid?.engine;
-      if (!E) return console.warn("[Grid] engine missing");
-      if (!window.gsap || !window.Flip) return console.warn("[Grid] GSAP/Flip missing");
+      if (!E) return;
+      if (!window.gsap || !window.Flip) return;
   
       gsap.registerPlugin(Flip);
   
@@ -1007,7 +1007,7 @@
         if (defaultBtn) defaultBtn.classList.add("is-active");
       }
   
-      console.log("[Grid] animator ready");
+      
     }
   
     window._108Grid = window._108Grid || {};
