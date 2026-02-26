@@ -172,16 +172,14 @@
     const target = getTargetVideo(card);
     const source = target === dark ? example : dark;
     if (touch) {
-      // Touch Safari hardening: no crossfade/layering; render one stable stream only.
+      // Touch: keep one active stream to reduce decode/memory pressure.
       if (dark) {
-        dark.style.transition = "none";
         dark.style.opacity = target === dark ? "1" : "0";
         dark.style.display = target === dark ? "block" : "none";
         cancelScheduledPause(dark);
         if (target !== dark && !dark.paused) dark.pause();
       }
       if (example) {
-        example.style.transition = "none";
         example.style.opacity = target === example ? "1" : "0";
         example.style.display = target === example ? "block" : "none";
         cancelScheduledPause(example);
@@ -191,7 +189,6 @@
       syncTo(source, target);
 
       if (dark) {
-        dark.style.display = "block";
         dark.style.opacity = target === dark ? "1" : "0";
         if (target === dark) {
           cancelScheduledPause(dark);
@@ -201,7 +198,6 @@
       }
 
       if (example) {
-        example.style.display = "block";
         example.style.opacity = target === example ? "1" : "0";
         if (target === example) {
           cancelScheduledPause(example);
@@ -244,6 +240,7 @@
     const touch = isTouchDevice();
     document.querySelectorAll(".motion-template_card").forEach(card => {
       const visible = isCardVisible(card);
+      const near = isNearViewport(card);
       const { dark, example } = getCardVideos(card);
       const target = getTargetVideo(card);
       const other = target === dark ? example : dark;
@@ -255,6 +252,17 @@
         if (example && sourceAttr(example) && example.dataset.loaded !== "1") stashAsLazy(example);
         if (!dark.paused) dark.pause();
         if (example && !example.paused) example.pause();
+        return;
+      }
+
+      if (!near) {
+        if (!dark.paused) dark.pause();
+        if (example && !example.paused) example.pause();
+        // On touch, aggressively free offscreen decoded video memory.
+        if (touch) {
+          if (dark && (sourceAttr(dark) || dark.dataset.loaded === "1")) unloadVideo(dark);
+          if (example && (sourceAttr(example) || example.dataset.loaded === "1")) unloadVideo(example);
+        }
         return;
       }
 
@@ -273,7 +281,7 @@
         if (target && target.dataset.src && !sourceAttr(target)) loadOne(target);
       }
 
-      if (isNearViewport(card)) applyCardVideoMode(card);
+      applyCardVideoMode(card);
     });
 
     if (typeof window._108Grid?.kickVisiblePlayback === "function") {
@@ -327,43 +335,6 @@
 
       const { pair, example } = getCardVideos(card);
       if (!pair || !example) return;
-
-      if (!touch) {
-        Object.assign(example.style, {
-          position: "absolute",
-          inset: "0",
-          width: "100%",
-          height: "100%",
-          objectFit: "cover",
-          display: "block",
-          opacity: "0",
-          transition: "opacity 0.2s ease",
-          zIndex: "2",
-          pointerEvents: "none",
-          transform: "translateZ(0)",
-          backfaceVisibility: "hidden",
-          willChange: "opacity"
-        });
-      } else {
-        Object.assign(example.style, {
-          position: "static",
-          inset: "",
-          width: "100%",
-          height: "100%",
-          objectFit: "cover",
-          display: "block",
-          opacity: "1",
-          transition: "none",
-          zIndex: "",
-          pointerEvents: "none",
-          transform: "none",
-          backfaceVisibility: "",
-          willChange: "auto"
-        });
-      }
-
-      pair.style.position = "relative";
-      pair.style.overflow = "hidden";
 
       if (!touch && card.dataset.hoverBind === "1") {
         // already bound
