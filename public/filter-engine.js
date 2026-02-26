@@ -231,9 +231,6 @@
         if (typeof window._108Grid?.refreshVideoObserver === "function") {
           window._108Grid.refreshVideoObserver();
         }
-        if (typeof window._108Grid?.refreshLightVideoObserver === "function") {
-          window._108Grid.refreshLightVideoObserver();
-        }
         if (typeof window._108Grid?.refreshProductVideoLoading === "function") {
           window._108Grid.refreshProductVideoLoading();
         }
@@ -321,9 +318,6 @@
 
       if (typeof window._108Grid?.refreshVideoObserver === "function") {
         window._108Grid.refreshVideoObserver();
-      }
-      if (typeof window._108Grid?.refreshLightVideoObserver === "function") {
-        window._108Grid.refreshLightVideoObserver();
       }
       if (typeof window._108Grid?.refreshProductVideoLoading === "function") {
         window._108Grid.refreshProductVideoLoading();
