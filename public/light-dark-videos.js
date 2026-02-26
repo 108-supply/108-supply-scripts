@@ -4,6 +4,8 @@
   const queue = new Set();
   let scheduled = false;
   let mutationTick = 0;
+  const pauseTimers = new WeakMap();
+  const FADE_MS = 200;
 
   function normalizeMode(raw) {
     const m = String(raw || "").trim().toLowerCase();
@@ -70,6 +72,25 @@
     }
   }
 
+  function cancelScheduledPause(v) {
+    const t = pauseTimers.get(v);
+    if (t) {
+      clearTimeout(t);
+      pauseTimers.delete(v);
+    }
+  }
+
+  function schedulePauseAfterFade(video, card) {
+    if (!video) return;
+    cancelScheduledPause(video);
+    const t = setTimeout(() => {
+      const targetNow = getTargetVideo(card);
+      if (targetNow !== video && !video.paused) video.pause();
+      pauseTimers.delete(video);
+    }, FADE_MS);
+    pauseTimers.set(video, t);
+  }
+
   function syncTo(source, target) {
     if (!source || !target) return;
     if (source.readyState < 2 || target.readyState < 2) return;
@@ -102,12 +123,20 @@
 
     if (dark) {
       dark.style.opacity = target === dark ? "1" : "0";
-      if (target !== dark && !dark.paused) dark.pause();
+      if (target === dark) {
+        cancelScheduledPause(dark);
+      } else {
+        schedulePauseAfterFade(dark, card);
+      }
     }
 
     if (hover) {
       hover.style.opacity = target === hover ? "1" : "0";
-      if (target !== hover && !hover.paused) hover.pause();
+      if (target === hover) {
+        cancelScheduledPause(hover);
+      } else {
+        schedulePauseAfterFade(hover, card);
+      }
     }
 
     playIfReady(target);
