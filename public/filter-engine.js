@@ -198,6 +198,7 @@
   
       let currentFilter = "all";
       let limit = CONFIG.paging.initial;
+      const limitsByFilter = { all: CONFIG.paging.initial };
   
       const allCards = () => $$(S.item, grid);
       const isVisible = (el) => el.style.display !== "none";
@@ -302,14 +303,17 @@
   
         setFilter(val){
           currentFilter = norm(val) || "all";
-          limit = CONFIG.paging.initial;
+          limit = limitsByFilter[currentFilter] ?? CONFIG.paging.initial;
         },
         setView(size){
           grid.setAttribute("data-size-grid", size);
           const btn = viewButtons.find(b => b.getAttribute("data-size") === size);
           if (btn) setActiveView(btn);
         },
-        addMore(){ limit += CONFIG.paging.more; },
+        addMore(){
+          limit += CONFIG.paging.more;
+          limitsByFilter[currentFilter] = limit;
+        },
   
         syncFilterActiveFromChecked,
         filteredList,

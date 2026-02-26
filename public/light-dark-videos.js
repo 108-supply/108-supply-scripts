@@ -166,7 +166,6 @@
       const card = getCard(v.closest(".motion-template_card"));
       if (!card) return;
       if (!isCardVisible(card)) return;
-      if (!isNearViewport(card)) return;
       applyCardVideoMode(card);
     }, { once: true });
 
