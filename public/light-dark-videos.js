@@ -18,6 +18,15 @@
     return normalizeMode(document.body.getAttribute("data-video-default"));
   }
 
+  function detectButtonMode(btn) {
+    const byAttr = btn.getAttribute("data-video-default-btn");
+    if (byAttr) return normalizeMode(byAttr);
+    const txt = (btn.textContent || "").trim().toLowerCase();
+    if (txt.includes("blank")) return "main";
+    if (txt.includes("in use") || txt.includes("inuse") || txt.includes("wow") || txt.includes("live")) return "hover";
+    return null;
+  }
+
   function ensureSource(v) {
     return v.querySelector("source") || (() => {
       const s = document.createElement("source");
@@ -288,8 +297,9 @@
 
   function updateModeButtonsUI() {
     const mode = getMode();
-    document.querySelectorAll("[data-video-default-btn]").forEach(btn => {
-      const v = normalizeMode(btn.getAttribute("data-video-default-btn"));
+    document.querySelectorAll("[data-video-default-btn], .live-button").forEach(btn => {
+      const v = detectButtonMode(btn);
+      if (!v) return;
       btn.classList.toggle("is-active", v === mode);
     });
   }
@@ -302,12 +312,21 @@
   }
 
   function initVideoModeSwitcher() {
-    document.querySelectorAll("[data-video-default-btn]").forEach(btn => {
+    const buttons = document.querySelectorAll("[data-video-default-btn], .live-button");
+    if (!document.body.getAttribute("data-video-default")) {
+      const activeBtn = Array.from(buttons).find(b => b.classList.contains("is-active"));
+      const inferred = activeBtn ? detectButtonMode(activeBtn) : null;
+      if (inferred) document.body.setAttribute("data-video-default", inferred);
+    }
+
+    buttons.forEach(btn => {
       if (btn.dataset.videoDefaultInit === "1") return;
       btn.dataset.videoDefaultInit = "1";
       btn.addEventListener("click", (e) => {
         e.preventDefault();
-        setVideoDefaultMode(btn.getAttribute("data-video-default-btn"));
+        const mode = detectButtonMode(btn);
+        if (!mode) return;
+        setVideoDefaultMode(mode);
       });
     });
     updateModeButtonsUI();
