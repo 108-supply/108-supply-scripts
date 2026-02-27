@@ -16,6 +16,9 @@
  */
 
 (() => {
+  if (window.__108_VIDEO_PAIRS_INIT__) return;
+  window.__108_VIDEO_PAIRS_INIT__ = true;
+
   const PAIR = '[data-video-pair]';
   const LIST = '[fs-list-element="list"]';
   const CARD = '.motion-template_card';
@@ -92,10 +95,15 @@
   // PLAYING CAP
   // ─────────────────────────────────────────────────────────────
   const playing = new Set();
+  const isPairInView = (v) => !!(v && v.closest(PAIR)?.__in);
   const cap = () => {
     while (playing.size > maxPlaying()) {
-      const v = playing.values().next().value;
+      const pool = Array.from(playing);
+      const v = pool.find(x => !isPairInView(x)) || pool[0];
       if (!v) break;
+      // iOS: do not pause currently visible videos just to satisfy cap,
+      // because pause/resume on visible layers can trigger WebKit mispaint.
+      if (IS_IOS_WEBKIT && isPairInView(v)) break;
       try { v.pause(); } catch(e) {}
       playing.delete(v);
     }
@@ -104,13 +112,25 @@
   const ensureSrc = (v) => {
     if (!v || v.src) return;
     const src = v.getAttribute('data-src');
-    if (src) v.src = src;
+    if (src) {
+      v.src = src;
+      delete v.dataset.metaLoaded;
+    }
   };
 
   const loadMeta = (v) => {
     if (!v) return;
     v.preload = 'metadata';
-    try { v.load(); } catch(e) {}
+    // Avoid repeated load() churn: on iOS this can destabilize video compositing.
+    if (v.dataset.metaLoaded === '1') return;
+    if (v.readyState >= 1) {
+      v.dataset.metaLoaded = '1';
+      return;
+    }
+    try {
+      v.load();
+      v.dataset.metaLoaded = '1';
+    } catch(e) {}
   };
 
   const canPlay = (v) =>
@@ -214,6 +234,15 @@
     document.querySelectorAll(PAIR).forEach(p => io.observe(p));
   };
 
+  const repairVisiblePairs = (reason) => {
+    if (!IS_IOS_WEBKIT) return;
+    document.querySelectorAll(PAIR).forEach((pair) => {
+      if (!pair.__in) return;
+      iosPaintResetPair(pair, reason);
+    });
+    log('repair-visible-pairs', reason);
+  };
+
   // Rescan when FS list changes (filters/pagination/load)
   const list = document.querySelector(LIST);
   if (list) {
@@ -306,4 +335,15 @@
   }
 
   window.addEventListener('load', scan);
+  window.addEventListener('pageshow', (ev) => {
+    scan();
+    if (ev.persisted) {
+      requestAnimationFrame(() => repairVisiblePairs('pageshow-bfcache'));
+    }
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      requestAnimationFrame(() => repairVisiblePairs('visibility-visible'));
+    }
+  });
 })();
