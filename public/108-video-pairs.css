@@ -38,6 +38,3 @@ html.is-touch .video-pair[data-video-pair] > video[data-role="dark"]{
   opacity:0 !important;
   display:none !important;
 }
-html.is-touch .video-pair[data-video-pair]{
-  /* keep layout stable */
-}
