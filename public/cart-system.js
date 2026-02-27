@@ -106,7 +106,20 @@
       catch { return []; }
     };
     const setCart = (c) => localStorage.setItem(CFG.LS_KEY, JSON.stringify(c));
-    const priceNum = (p) => parseFloat(String(p||'0').replace('$','')) || 0;
+    const toEuroDisplay = (value) => {
+      const s = String(value ?? '').trim();
+      if (!s) return '€0';
+      if (s.includes('€')) return s;
+      if (s.includes('$')) return s.replace(/\$/g, '€');
+      return /^-?\d/.test(s) ? `€${s}` : s;
+    };
+    const priceNum = (p) => {
+      const raw = String(p || '0').replace(/[^\d.,-]/g, '');
+      const normalized = raw.includes(',') && !raw.includes('.')
+        ? raw.replace(',', '.')
+        : raw.replace(/,/g, '');
+      return parseFloat(normalized) || 0;
+    };
 
     function updateBadge() {
       if (badgeEl) badgeEl.textContent = getCart().length;
@@ -115,7 +128,7 @@
     function updateTotal() {
       if (!totalEl) return;
       const total = getCart().reduce((a,it)=>a+priceNum(it.price),0);
-      totalEl.textContent = '$' + total.toFixed(0);
+      totalEl.textContent = '€' + total.toFixed(0);
     }
 
     function clearAnimations(el) {
@@ -432,7 +445,7 @@
         wrapper.innerHTML = '';
         if (cart.length === 0) {
           wrapper.style.display = 'none';
-          if (totalEl) totalEl.textContent = '$0';
+          if (totalEl) totalEl.textContent = '€0';
           updateBadge();
           setEmptyState(true);
           if (content) {
@@ -467,7 +480,7 @@
           const v = clone.querySelector('.cart-item_variant');
           if (v) v.textContent = item.variant ? (item.variant.charAt(0).toUpperCase() + item.variant.slice(1) + ' License') : 'License';
           const p = clone.querySelector('.cart-item_price');
-          if (p) p.textContent = item.price || '$0';
+          if (p) p.textContent = toEuroDisplay(item.price);
           const btn = clone.querySelector('.remove-button');
           if (btn) { btn.classList.add('cart-remove-btn'); btn.setAttribute('data-index', index); }
           wrapper.appendChild(clone);
@@ -767,11 +780,11 @@
           const variant = variantSelect.value;
           const price = window.productData.prices[variant];
           const paddleId = window.productData.paddleIds[variant];
-          priceDisplay.textContent = price;
+          priceDisplay.textContent = toEuroDisplay(price);
           addBtn.dataset.productName = window.productData.name;
           addBtn.dataset.productPoster = window.productData.poster;
           addBtn.dataset.productCategory = window.productData.category;
-          addBtn.dataset.price = price;
+          addBtn.dataset.price = toEuroDisplay(price);
           addBtn.dataset.paddleId = paddleId;
           addBtn.dataset.variant = variant;
           checkIfInCart();
