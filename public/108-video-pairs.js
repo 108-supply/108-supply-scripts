@@ -1,259 +1,207 @@
 /*!
- * 108™ Supply — Video Pairs Engine (JS)
- *
- * Goal:
- * - Desktop (hover: hover): dual-video per card, hover swaps visibility, optional inuse/blank view.
- * - Touch devices (hover: none / pointer: coarse): SINGLE VIDEO mode to prevent iOS/iPadOS WebKit video layer glitches.
- *
- * Touch mode behavior:
- * - Keep ONLY the "example" video active.
- * - "dark" video is stripped so it never loads (remove data-src/src, pause, preload none, display none).
- *
- * Notes:
- * - No paint-reset hacks.
- * - No video.load() calls.
- * - Lazy loading via data-src is preserved for the kept video.
+ * 108™ Supply — Video Pairs (JS)
+ * - Desktop (hover: hover): dual-video (example + dark) with hover swap
+ * - Touch (hover: none / pointer: coarse): remove dark video entirely (never loads), run single-video (example only)
+ * - No video.load(), no paint hacks. Just set src once and play/pause via IntersectionObserver.
  */
 
 (() => {
-  const PAIR = '[data-video-pair]';
-  const LIST = '[fs-list-element="list"]';
-  const CARD = '.motion-template_card';
-  const OVERLAY = '.card_link_overlay';
+  // Guard against double init (Webflow + bfcache + partial reloads)
+  if (window.__108_VIDEO_PAIRS_INIT__) return;
+  window.__108_VIDEO_PAIRS_INIT__ = true;
 
-  const VIEW_ATTR = 'data-view';
-  const ROOT_MARGIN = '200px 0px';
-  const HOVER_INTENT = 60;
+  const PAIR_SEL = '[data-video-pair]';
+  const LIST_SEL = '[fs-list-element="list"]';
+  const CARD_SEL = '.motion-template_card';
+  const OVERLAY_SEL = '.card_link_overlay';
 
-  const prefersReducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const hoverCapable = matchMedia('(hover: hover)').matches; // desktop only
-  const IS_TOUCH = matchMedia('(hover: none)').matches || matchMedia('(pointer: coarse)').matches;
+  const HOVER_CAPABLE = matchMedia('(hover: hover) and (pointer: fine)').matches;
+  const IS_TOUCH = !HOVER_CAPABLE || matchMedia('(hover: none)').matches || matchMedia('(pointer: coarse)').matches;
 
-  // Mark <html> for CSS
-  document.documentElement.classList.toggle('is-touch', IS_TOUCH);
+  // Mark html for CSS if you want
+  try { document.documentElement.classList.toggle('is-touch', IS_TOUCH); } catch (_) {}
 
-  const maxPlaying = () =>
-    matchMedia('(max-width: 767px)').matches ? 4 :
-    matchMedia('(max-width: 991px)').matches ? 12 :
-    matchMedia('(max-width: 1440px)').matches ? 16 : 24;
+  // Tune: prefetch a bit ahead, but don't go crazy on iOS
+  const ROOT_MARGIN = IS_TOUCH ? '120px 0px' : '200px 0px';
+  const THRESHOLD = 0.01;
 
-  // View mode (desktop feature; on touch it doesn't swap videos)
-  const setView = (v) => document.body.setAttribute(VIEW_ATTR, v);
-  const mode = () => document.body.getAttribute(VIEW_ATTR) || 'inuse';
-  if (!document.body.hasAttribute(VIEW_ATTR)) setView('inuse');
+  // --- helpers
+  const q = (root, sel) => root.querySelector(sel);
 
-  document.addEventListener('click', (e) => {
-    if (e.target.closest('.view-inuse')) setView('inuse');
-    if (e.target.closest('.view-blank')) setView('blank');
-  });
+  function ensureSrc(video) {
+    if (!video) return false;
 
-  const playing = new Set();
+    // If already has a real src/currentSrc -> done
+    if (video.currentSrc || video.getAttribute('src')) return true;
 
-  const cap = () => {
-    while (playing.size > maxPlaying()) {
-      const v = playing.values().next().value;
-      if (!v) break;
-      try { v.pause(); } catch(e) {}
-      playing.delete(v);
-    }
-  };
-
-  const ensureSrc = (v) => {
-    if (!v || v.src) return;
-    const src = v.getAttribute('data-src');
-    if (src) v.src = src;
-  };
-
-  const canPlay = (v) =>
-    (v && v.readyState >= 3) ? Promise.resolve() :
-    new Promise(res => {
-      if (!v) return res();
-      const done = () => res();
-      v.addEventListener('canplay', done, { once:true });
-      v.addEventListener('loadeddata', done, { once:true });
-    });
-
-  const play = async (v) => {
-    if (!v || prefersReducedMotion) return false;
-    try {
-      await v.play();
-      playing.add(v);
-      cap();
+    // Prefer data-src (your lazy strategy)
+    const ds = video.getAttribute('data-src');
+    if (ds) {
+      video.setAttribute('src', ds);
       return true;
-    } catch(e) { return false; }
-  };
-
-  const pause = (v) => {
-    if (!v) return;
-    try { v.pause(); } catch(e) {}
-    playing.delete(v);
-  };
-
-  // ===== Touch mode: strip buddy video so it never loads =====
-  function stripBuddyOnTouch(pair) {
-    if (!IS_TOUCH || !pair) return;
-
-    const keepRole = 'example';
-    const killRole = 'dark';
-
-    const keep = pair.querySelector(`video[data-role="${keepRole}"]`);
-    const kill = pair.querySelector(`video[data-role="${killRole}"]`);
-
-    // Kill "dark" completely (performance)
-    if (kill) {
-      try { kill.pause(); } catch(e) {}
-      // Prevent any future lazy-load
-      kill.removeAttribute('data-src');
-      kill.removeAttribute('src');
-      kill.preload = 'none';
-      kill.style.display = 'none';
     }
 
-    // Force stable classes (no swapping on touch)
-    pair.classList.add('show-example');
-    pair.classList.remove('show-dark');
+    // Fallback: some people keep src in the markup already
+    const s = video.src; // may be "" but just in case
+    if (s) return true;
 
-    // Cache references
-    pair.__ex = keep || null;
-    pair.__dk = null;
+    return false;
   }
 
-  // Default view on desktop (no hover): inuse => example; blank => dark
-  const defaultShowDark = () => mode() === 'blank';
+  function safePlay(video) {
+    if (!video) return;
+    // IMPORTANT: do not await, do not gate on canplay
+    // poster/first frame will handle visuals
+    const p = video.play();
+    if (p && typeof p.catch === 'function') p.catch(() => {});
+  }
 
-  const applyDefaultView = (pair) => {
-    if (!pair) return;
+  function safePause(video) {
+    if (!video) return;
+    try { video.pause(); } catch (_) {}
+  }
 
-    // Touch: always example (no swap)
-    if (IS_TOUCH) {
-      pair.classList.add('show-example');
-      pair.classList.remove('show-dark');
-      return;
-    }
+  // --- touch mode: kill dark video so it never loads / never allocates decoder
+  function stripDarkVideo(pair) {
+    const dark = q(pair, 'video[data-role="dark"]');
+    if (!dark) return;
+    // Make 100% sure it will never request anything
+    dark.removeAttribute('src');
+    dark.removeAttribute('data-src');
+    // Remove from DOM entirely (best for iOS)
+    dark.parentNode && dark.parentNode.removeChild(dark);
+  }
 
-    pair.classList.toggle('show-dark', defaultShowDark());
-    pair.classList.toggle('show-example', !defaultShowDark());
-  };
+  // --- view swap on desktop (no touch)
+  function showExample(pair) {
+    pair.classList.add('show-example');
+    pair.classList.remove('show-dark');
+  }
+  function showDark(pair) {
+    pair.classList.add('show-dark');
+    pair.classList.remove('show-example');
+  }
 
-  // ===== IntersectionObserver: play/pause ONLY the active video =====
+  // --- IntersectionObserver: only manage example on touch, both on desktop
   const io = new IntersectionObserver((entries) => {
-    for (const e of entries) {
-      const pair = e.target;
-      pair.__in = e.isIntersecting;
+    for (const entry of entries) {
+      const pair = entry.target;
+      const ex = q(pair, 'video[data-role="example"]');
+      const dk = q(pair, 'video[data-role="dark"]');
 
-      const example = pair.__ex || pair.querySelector('video[data-role="example"]');
-      const dark = pair.__dk || pair.querySelector('video[data-role="dark"]');
+      if (entry.isIntersecting) {
+        // Always: example should load + play
+        if (ensureSrc(ex)) safePlay(ex);
 
-      pair.__ex = example;
-      pair.__dk = IS_TOUCH ? null : dark;
-
-      if (pair.__in) applyDefaultView(pair);
-
-      // Active video = the one that is meant to be visible
-      // Touch: always example
-      const active = IS_TOUCH ? example : (defaultShowDark() ? dark : example);
-
-      if (pair.__in) {
-        ensureSrc(active);
-        // fire-and-forget play; canPlay gate kept but only for the active one
-        canPlay(active).then(() => {
-          if (!pair.__in) return;
-          play(active);
-        });
+        if (!IS_TOUCH) {
+          // Desktop: keep both available (but don't force-load dark unless it already has src/data-src)
+          if (dk && (dk.getAttribute('data-src') || dk.getAttribute('src') || dk.currentSrc)) {
+            ensureSrc(dk);
+            // don't autoplay dark unless currently shown OR already playing (keep it light)
+            if (pair.classList.contains('show-dark')) safePlay(dk);
+          }
+        }
       } else {
-        // Pause only what we might have played
-        pause(example);
-        if (!IS_TOUCH) pause(dark);
+        safePause(ex);
+        if (!IS_TOUCH) safePause(dk);
       }
     }
-  }, { root:null, rootMargin: ROOT_MARGIN, threshold: 0.01 });
+  }, { root: null, rootMargin: ROOT_MARGIN, threshold: THRESHOLD });
 
-  const scan = () => {
-    document.querySelectorAll(PAIR).forEach(pair => {
-      stripBuddyOnTouch(pair);
-      io.observe(pair);
-    });
-  };
+  function initPair(pair) {
+    if (!pair || pair.__108_inited) return;
+    pair.__108_inited = true;
 
-  // rescan when list changes (Finsweet pagination/filter)
-  const list = document.querySelector(LIST);
-  if (list) new MutationObserver(() => requestAnimationFrame(scan))
-    .observe(list, { childList:true, subtree:true });
+    // Set sane defaults
+    const ex = q(pair, 'video[data-role="example"]');
+    const dk = q(pair, 'video[data-role="dark"]');
 
-  // react to view mode changes: desktop only affects which video is active
-  new MutationObserver(() => {
-    if (IS_TOUCH) return;
-    document.querySelectorAll(PAIR).forEach(pair => {
-      if (!pair.__in) return;
-      applyDefaultView(pair);
-      const active = defaultShowDark() ? pair.__dk : pair.__ex;
-      ensureSrc(active);
-      canPlay(active).then(() => {
-        if (!pair.__in) return;
-        play(active);
-      });
-    });
-  }).observe(document.body, { attributes:true, attributeFilter:[VIEW_ATTR] });
+    if (ex) {
+      ex.muted = true;
+      ex.loop = true;
+      ex.playsInline = true;
+      ex.setAttribute('playsinline', '');
+      // Let browser decide; do not preload heavy on iOS
+      ex.preload = 'none';
+    }
 
-  // ===== Desktop hover swap =====
-  if (hoverCapable) {
-    const timers = new WeakMap();
+    if (dk) {
+      dk.muted = true;
+      dk.loop = true;
+      dk.playsInline = true;
+      dk.setAttribute('playsinline', '');
+      dk.preload = 'none';
+    }
 
-    const syncTime = (from, to) => {
-      if (!from || !to) return;
-      const t = from.currentTime || 0;
-      const apply = () => { try { to.currentTime = t; } catch(e) {} };
-      if (to.readyState >= 1) apply();
-      else to.addEventListener('loadedmetadata', apply, { once:true });
-    };
+    if (IS_TOUCH) {
+      // Touch: no hover/no switcher — remove dark video completely
+      stripDarkVideo(pair);
+      showExample(pair);
+    } else {
+      // Desktop default: show example
+      showExample(pair);
+    }
 
-    const onEnter = (pair) => {
-      if (!pair || !pair.__in) return;
+    io.observe(pair);
+  }
 
-      const showDarkOnHover = !defaultShowDark(); // inuse -> hover shows dark, blank -> hover shows example
-      const target = showDarkOnHover ? pair.__dk : pair.__ex;
-      const source = showDarkOnHover ? pair.__ex : pair.__dk;
+  function scan() {
+    document.querySelectorAll(PAIR_SEL).forEach(initPair);
+  }
 
-      if (!target || !source) return;
+  // Rescan when FS list rerenders items
+  const list = document.querySelector(LIST_SEL);
+  if (list) {
+    new MutationObserver(() => requestAnimationFrame(scan))
+      .observe(list, { childList: true, subtree: true });
+  }
 
-      ensureSrc(target);
-      syncTime(source, target);
-
-      canPlay(target).then(async () => {
-        if (!pair.__in) return;
-        await play(target);
-        pair.classList.toggle('show-dark', showDarkOnHover);
-        pair.classList.toggle('show-example', !showDarkOnHover);
-      });
-    };
-
-    const onLeave = (pair) => {
-      if (!pair || !pair.__in) return;
-      applyDefaultView(pair);
-    };
+  // Desktop hover: swap to dark on hover, but only if dark exists and has data-src
+  if (!IS_TOUCH && HOVER_CAPABLE) {
+    let hoverTimer = null;
 
     document.addEventListener('mouseover', (ev) => {
-      const overlay = ev.target.closest(OVERLAY);
+      const overlay = ev.target.closest(OVERLAY_SEL);
       if (!overlay) return;
-      const pair = overlay.closest(CARD)?.querySelector(PAIR);
+
+      const card = overlay.closest(CARD_SEL);
+      if (!card) return;
+
+      const pair = card.querySelector(PAIR_SEL);
       if (!pair) return;
 
-      const t = setTimeout(() => onEnter(pair), HOVER_INTENT);
-      timers.set(overlay, t);
+      hoverTimer = setTimeout(() => {
+        const dk = q(pair, 'video[data-role="dark"]');
+        const ex = q(pair, 'video[data-role="example"]');
+        if (!dk) return;
+
+        // Only now load dark (on demand!)
+        if (ensureSrc(dk)) safePlay(dk);
+        // Keep example playing too, no pause
+        if (ex && (ex.getAttribute('src') || ex.currentSrc)) safePlay(ex);
+
+        showDark(pair);
+      }, 60);
     }, true);
 
     document.addEventListener('mouseout', (ev) => {
-      const overlay = ev.target.closest(OVERLAY);
+      const overlay = ev.target.closest(OVERLAY_SEL);
       if (!overlay) return;
-      const t = timers.get(overlay);
-      if (t) clearTimeout(t);
 
-      const pair = overlay.closest(CARD)?.querySelector(PAIR);
+      if (hoverTimer) clearTimeout(hoverTimer);
+      hoverTimer = null;
+
+      const card = overlay.closest(CARD_SEL);
+      if (!card) return;
+
+      const pair = card.querySelector(PAIR_SEL);
       if (!pair) return;
 
-      onLeave(pair);
+      showExample(pair);
     }, true);
   }
 
+  // BFCache return: just rescan + let IO do its job
+  window.addEventListener('pageshow', () => requestAnimationFrame(scan));
   window.addEventListener('load', scan);
 })();
