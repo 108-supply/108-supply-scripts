@@ -24,14 +24,41 @@
   const VIEW_ATTR = 'data-view';
   const ROOT_MARGIN = '200px 0px';
   const HOVER_INTENT = 60;
+  const DEBUG = !!window.__VID_PAIRS_DEBUG;
 
   const prefersReducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
   const hoverCapable = matchMedia('(hover: hover)').matches; // desktop only
+  const IS_IOS_WEBKIT = (() => {
+    const ua = navigator.userAgent || '';
+    const iOSDevice = /iP(ad|hone|od)/i.test(ua);
+    const iPadDesktopUA = navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
+    return iOSDevice || iPadDesktopUA;
+  })();
+  const log = (...args) => { if (DEBUG) console.log('[108-video-pairs]', ...args); };
 
   const maxPlaying = () =>
     matchMedia('(max-width: 767px)').matches ? 4 :
     matchMedia('(max-width: 991px)').matches ? 12 :
     matchMedia('(max-width: 1440px)').matches ? 16 : 24;
+
+  const iosPaintResetVideo = (v, reason) => {
+    if (!IS_IOS_WEBKIT || !v) return;
+    const prevTransform = v.style.transform;
+    v.style.transform = 'translateZ(0)';
+    requestAnimationFrame(() => {
+      v.style.transform = prevTransform;
+      void v.offsetHeight; // force repaint only on iOS WebKit
+    });
+    log('paint-reset-video', reason);
+  };
+
+  const iosPaintResetPair = (pair, reason) => {
+    if (!IS_IOS_WEBKIT || !pair) return;
+    const ex = pair.__ex || pair.querySelector('video[data-role="example"]');
+    const dk = pair.__dk || pair.querySelector('video[data-role="dark"]');
+    iosPaintResetVideo(ex, reason);
+    iosPaintResetVideo(dk, reason);
+  };
 
   // ─────────────────────────────────────────────────────────────
   // VIEW MODE + BUTTON UI (scalone z D)
@@ -103,20 +130,24 @@
     else to.addEventListener('loadedmetadata', apply, { once:true });
   };
 
-  const play = async (v) => {
+  const play = async (v, reason = '') => {
     if (!v || prefersReducedMotion) return false;
     try {
       await v.play();
       playing.add(v);
       cap();
+      iosPaintResetVideo(v, `play:${reason}`);
+      log('play', reason, v.currentSrc || v.src || '(no-src)');
       return true;
     } catch(e) { return false; }
   };
 
-  const pause = (v) => {
+  const pause = (v, reason = '') => {
     if (!v) return;
     try { v.pause(); } catch(e) {}
     playing.delete(v);
+    iosPaintResetVideo(v, `pause:${reason}`);
+    log('pause', reason, v.currentSrc || v.src || '(no-src)');
   };
 
   // ─────────────────────────────────────────────────────────────
@@ -126,8 +157,13 @@
 
   const applyDefaultView = (pair) => {
     if (!pair) return;
-    pair.classList.toggle('show-dark', defaultShowDark());
-    pair.classList.toggle('show-example', !defaultShowDark());
+    const toDark = defaultShowDark();
+    const changed =
+      pair.classList.contains('show-dark') !== toDark ||
+      pair.classList.contains('show-example') === toDark;
+    pair.classList.toggle('show-dark', toDark);
+    pair.classList.toggle('show-example', !toDark);
+    if (changed) iosPaintResetPair(pair, 'toggle-default-view');
   };
 
   // ─────────────────────────────────────────────────────────────
@@ -151,15 +187,25 @@
 
       if (pair.__in) {
         ensureSrc(active); loadMeta(active);
-        canPlay(active).then(() => play(active));
+        canPlay(active).then(() => {
+          if (!pair.__in) return;
+          play(active, 'io-enter-active');
+          iosPaintResetPair(pair, 'io-enter-active');
+        });
 
         // If buddy already had src (hovered before), keep it running too
         if (buddy && buddy.src) {
           loadMeta(buddy);
-          canPlay(buddy).then(() => play(buddy));
+          canPlay(buddy).then(() => {
+            if (!pair.__in) return;
+            play(buddy, 'io-enter-buddy');
+            iosPaintResetPair(pair, 'io-enter-buddy');
+          });
         }
       } else {
-        pause(example); pause(dark);
+        pause(example, 'io-leave-example');
+        pause(dark, 'io-leave-dark');
+        iosPaintResetPair(pair, 'io-leave');
       }
     }
   }, { root:null, rootMargin: ROOT_MARGIN, threshold: 0.01 });
@@ -183,7 +229,11 @@
 
       const active = defaultShowDark() ? pair.__dk : pair.__ex;
       ensureSrc(active); loadMeta(active);
-      canPlay(active).then(() => play(active));
+      canPlay(active).then(() => {
+        if (!pair.__in) return;
+        play(active, 'view-change-active');
+        iosPaintResetPair(pair, 'view-change');
+      });
     });
   }).observe(document.body, { attributes:true, attributeFilter:[VIEW_ATTR] });
 
@@ -207,9 +257,10 @@
       syncTime(source, target);
 
       canPlay(target).then(async () => {
-        await play(target);
+        await play(target, 'hover-target');
         pair.classList.toggle('show-dark', showDarkOnHover);
         pair.classList.toggle('show-example', !showDarkOnHover);
+        iosPaintResetPair(pair, 'toggle-hover-view');
       });
     };
 
