@@ -39,3 +39,31 @@
 
 .video-pair[data-video-pair].show-example > video[data-role="example"]{ opacity:1; }
 .video-pair[data-video-pair].show-example > video[data-role="dark"]{ opacity:0; }
+
+
+/* iOS Safari lubi się gubić na video-po-pauzie — stabilizacja warstwy */
+.video-pair[data-video-pair]{
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  contain: paint;                 /* ogranicza “wycieki” rysowania */
+  transform: translateZ(0);       /* wymusza osobną warstwę */
+  -webkit-transform: translateZ(0);
+}
+
+.video-pair[data-video-pair] > video{
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 50% 50%;
+  display: block;
+
+  /* webkit voodoo */
+  transform: translateZ(0);
+  -webkit-transform: translateZ(0);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
