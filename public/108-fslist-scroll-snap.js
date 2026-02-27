@@ -1,3 +1,16 @@
+/**
+ * 108™ Supply — FS List: Scroll Snap + Lenis Refresh
+ * Purpose:
+ * - After Finsweet List updates (filter/pagination/load more), refresh Lenis height
+ * - If the update was user-initiated (clicked filter/load-more), scroll back to filters section
+ *
+ * Requirements:
+ * - Lenis available as `window.lenis`
+ * - List element: [fs-list-element="list"]
+ * - Filters wrapper selector matches FILTERS constant
+ * - Load more button selector matches LOAD_BTN constant
+ */
+
 (() => {
   // ---- CONFIG
   const FILTERS = '.filters_wrapper';

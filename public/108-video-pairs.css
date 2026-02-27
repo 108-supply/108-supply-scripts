@@ -1,0 +1,41 @@
+/**
+ * 108™ Supply — Video Pairs CSS
+ * Purpose:
+ * - Stacks two videos in one wrapper and swaps visibility via opacity
+ * - JS toggles `.show-dark` and `.show-example` on the wrapper
+ *
+ * Requirements:
+ * - Wrapper selector matches: .video-pair[data-video-pair] (or adjust if needed)
+ * - Two videos inside with:
+ *   - video[data-role="example"]
+ *   - video[data-role="dark"]
+ */
+
+.video-pair[data-video-pair]{
+  position:relative;
+  width:100%;
+  height:100%;
+  overflow:hidden;
+}
+
+.video-pair[data-video-pair] > video{
+  position:absolute;
+  inset:0;
+  width:100%;
+  height:100%;
+  object-fit:cover;
+  display:block;
+  transition:opacity 200ms ease;
+  will-change:opacity;
+}
+
+/* Default state: show example */
+.video-pair[data-video-pair] > video[data-role="example"]{ opacity:1; }
+.video-pair[data-video-pair] > video[data-role="dark"]{ opacity:0; }
+
+/* JS-controlled swap */
+.video-pair[data-video-pair].show-dark > video[data-role="example"]{ opacity:0; }
+.video-pair[data-video-pair].show-dark > video[data-role="dark"]{ opacity:1; }
+
+.video-pair[data-video-pair].show-example > video[data-role="example"]{ opacity:1; }
+.video-pair[data-video-pair].show-example > video[data-role="dark"]{ opacity:0; }

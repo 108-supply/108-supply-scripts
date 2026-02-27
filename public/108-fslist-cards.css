@@ -1,0 +1,56 @@
+/**
+ * 108™ Supply — FS List Cards Animation CSS
+ * Purpose:
+ * - Defines base card transition styles
+ * - Defines starting state `.is-list-starting` used by Finsweet List reset + your entry animation
+ * - Optional reduced motion fallback
+ *
+ * Requirements:
+ * - Cards use class: .motion-template_card
+ * - Finsweet list adds/removes `.is-list-starting` on items
+ */
+
+:root{
+  --scroll-offset: 60px; /* tyle ile chcesz “wyżej” (navbar + oddech) */
+}
+
+/* element, który ma fs-list-element="scroll-anchor" */
+[fs-list-element="scroll-anchor"]{
+  scroll-margin-top: var(--scroll-offset);
+}
+
+/* 1) Bazowy stan itemu (to jest "TO") */
+.motion-template_card {
+  opacity: 1;
+  transform: translate3d(0,0,0) scale(1);
+  filter: blur(0px) brightness(1) saturate(1);
+  transition:
+    opacity 600ms cubic-bezier(.2,.8,.2,1),
+    transform 600ms cubic-bezier(.2,.8,.2,1),
+    filter 600ms cubic-bezier(.2,.8,.2,1);
+  will-change: opacity, transform, filter;
+}
+
+/* 2) Stan startowy (FS dodaje klasę, potem ją zdejmuje) */
+.motion-template_card.is-list-starting {
+  opacity: 0;
+  transform: translate3d(0, 16px, 0) scale(1.02);
+  filter: blur(12px) brightness(1.22) saturate(1.15);
+}
+
+/* Opcjonalnie: kiedy lista "pracuje", możesz delikatnie przygasić starą zawartość
+   (to jest na wrapperze listy, nie na itemach) */
+[fs-list-element="list"].is-list-loading {
+  /* nic nie musisz, ale jak chcesz mikro-feedback: */
+  /* opacity: 0.98; */
+}
+  /* Prefer-reduced-motion: zero bajerów */
+  @media (prefers-reduced-motion: reduce) {
+    .motion-template_card,
+    .motion-template_card.is-list-starting {
+      transition: none !important;
+      transform: none !important;
+      filter: none !important;
+      opacity: 1 !important;
+    }
+  }
