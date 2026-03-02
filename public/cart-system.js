@@ -1205,17 +1205,17 @@ window.__A108_CHECKOUT_HANDLER__ = async function(cart) {
   };
 
   // OPEN PADDLE - frameInitialHeight so iframe has proper initial size
-  const isDarkMode = !document.body.classList.contains('is-base');
-
   Paddle.Checkout.open({
     items: items,
     settings: {
       displayMode: 'inline',
+      displayModeTheme: 'dark',
       frameTarget: 'checkout-container',
       frameInitialHeight: '600',
       frameStyle: 'width: 100%; min-width: 312px; background-color: transparent; border: none;',
       variant: 'one-page',
-      theme: isDarkMode ? 'dark' : 'light',
+      // Backward/forward compatibility across Paddle.js variants.
+      theme: 'dark',
       locale: 'en'
     }
   });
