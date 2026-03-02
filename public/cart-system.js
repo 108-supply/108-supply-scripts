@@ -965,19 +965,21 @@ window.__A108_CHECKOUT_HANDLER__ = async function(cart) {
   async function adjustToCheckoutHeight() {
     if (!content || !backBtn || !container) return;
     if (container.style.display === 'none') return;
+    if (isMobile) return;
     if (isAdjusting) return;
     isAdjusting = true;
     try {
       normalizeCheckoutIframeStyles();
       const measuredH = getCheckoutViewHeight();
       const currentH = content.getBoundingClientRect().height || 0;
-      // Only EXPAND, never shrink - iframe measurement can be wrong during load
-      const targetH = Math.max(measuredH, currentH, CHECKOUT_MIN_H);
-      if (targetH > 0 && targetH > currentH && Math.abs(targetH - currentH) > 2) {
+      // Allow both grow and shrink after iframe stabilizes, so Apple Pay / discount
+      // states can reduce height back to needed size.
+      const targetH = Math.max(measuredH, CHECKOUT_MIN_H);
+      if (targetH > 0 && Math.abs(targetH - currentH) > 2) {
         await animateContentHeight(currentH, targetH);
       }
       content.style.overflow = 'auto';
-      // Do NOT unpin height - keep it so checkout stays visible
+      // Keep explicit height while checkout is open to prevent cutoff/reflow jumps.
     } finally {
       isAdjusting = false;
     }
@@ -1010,10 +1012,10 @@ window.__A108_CHECKOUT_HANDLER__ = async function(cart) {
     container.style.overflow = 'auto';
     container.style.webkitOverflowScrolling = 'touch';
     if (content) {
-      content.style.height = '100vh';
-      try {
-        if (window.CSS && CSS.supports && CSS.supports('height: 100dvh')) content.style.height = '100dvh';
-      } catch {}
+        content.style.height = '100vh';
+        try {
+          if (window.CSS && CSS.supports && CSS.supports('height: 100dvh')) content.style.height = '100dvh';
+        } catch {}
       content.style.overflow = 'auto';
       content.style.webkitOverflowScrolling = 'touch';
       content.style.touchAction = 'pan-y';
@@ -1098,7 +1100,7 @@ window.__A108_CHECKOUT_HANDLER__ = async function(cart) {
   if (!isMobile) {
     runHeightAnimation();
   } else {
-    // Mobile: just fade in the checkout after a brief delay for Paddle to start rendering
+    // Mobile: keep 100vh checkout and just fade in after Paddle starts rendering.
     setTimeout(() => fadeInCheckout(), 120);
   }
 
@@ -1169,7 +1171,7 @@ window.__A108_CHECKOUT_HANDLER__ = async function(cart) {
     await new Promise(r => requestAnimationFrame(r));
 
     if (isMobile) {
-      // Mobile: keep full-screen, just fade in cart
+      // Mobile: keep full-screen cart drawer behavior.
       if (content) {
         content.style.height = '100vh';
         try {
@@ -1180,9 +1182,9 @@ window.__A108_CHECKOUT_HANDLER__ = async function(cart) {
       }
       await Promise.all(toShow.map(fadeIn));
     } else {
-      // Desktop: animate height, then fade in
+      // Desktop: animate height back to cart size.
       if (content && fromH > 0) {
-        const toH = content.scrollHeight;
+        const toH = Math.max(content.scrollHeight, 0);
         content.style.height = fromH + 'px';
         content.style.overflow = 'hidden';
         void content.offsetHeight;
