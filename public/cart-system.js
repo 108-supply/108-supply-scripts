@@ -1049,12 +1049,18 @@ window.__A108_CHECKOUT_HANDLER__ = async function(cart) {
 
   // Initial height animation; then wait for Paddle iframe height to stabilize; then fit + fade in
   const runHeightAnimation = async () => {
-    if (!content || startH <= 0) return;
+    if (!content) return;
     const safeMin = Math.max(
       CHECKOUT_MIN_H,
       Math.ceil(backBtn.getBoundingClientRect().height || 0) + CHECKOUT_MIN_H + CHECKOUT_SAFE_PAD_PX
     );
-    await animateContentHeight(startH, safeMin);
+    // If start height reads as 0 (layout not settled yet), still run animation pipeline.
+    const fromH = Math.max(
+      Math.ceil(startH || 0),
+      Math.ceil(content.getBoundingClientRect().height || 0),
+      1
+    );
+    await animateContentHeight(fromH, safeMin);
     content.style.overflow = 'auto';
 
     // ResizeObserver: respond to container/iframe size changes
@@ -1083,7 +1089,12 @@ window.__A108_CHECKOUT_HANDLER__ = async function(cart) {
 
         // stable when no changes for a bit and we have meaningful height
         if (h >= CHECKOUT_MIN_H && Date.now() - lastChangeAt > 220) {
-          adjustToCheckoutHeight().then(() => fadeInCheckout());
+          adjustToCheckoutHeight().then(() => {
+            fadeInCheckout();
+            // Late UI changes (payment method/discount) can land after first stable sample.
+            setTimeout(() => adjustToCheckoutHeight(), 220);
+            setTimeout(() => adjustToCheckoutHeight(), 700);
+          });
           return;
         }
       }
@@ -1093,6 +1104,8 @@ window.__A108_CHECKOUT_HANDLER__ = async function(cart) {
         // fallback: show it even if we couldn't read a stable height
         fadeInCheckout();
         adjustToCheckoutHeight();
+        setTimeout(() => adjustToCheckoutHeight(), 220);
+        setTimeout(() => adjustToCheckoutHeight(), 700);
       }
     };
     poll();
@@ -1208,13 +1221,12 @@ window.__A108_CHECKOUT_HANDLER__ = async function(cart) {
   Paddle.Checkout.open({
     items: items,
     settings: {
+      // Paddle Billing (Paddle.js v2): use displayMode + theme
       displayMode: 'inline',
-      displayModeTheme: 'dark',
       frameTarget: 'checkout-container',
       frameInitialHeight: '600',
       frameStyle: 'width: 100%; min-width: 312px; background-color: transparent; border: none;',
       variant: 'one-page',
-      // Backward/forward compatibility across Paddle.js variants.
       theme: 'dark',
       locale: 'en'
     }
