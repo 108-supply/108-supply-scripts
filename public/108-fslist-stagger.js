@@ -26,13 +26,14 @@
     });
   }
 
-  // 1) na start
-  window.addEventListener('load', applyStagger);
+  // FIX: bind MutationObserver inside 'load' so DOM is guaranteed ready
+  window.addEventListener('load', () => {
+    applyStagger();
 
-  // 2) na każde doładowanie / filtr (MutationObserver)
-  const list = document.querySelector(LIST);
-  if (!list) return;
+    const list = document.querySelector(LIST);
+    if (!list) return;
 
-  const mo = new MutationObserver(() => requestAnimationFrame(applyStagger));
-  mo.observe(list, { childList: true, subtree: true });
+    const mo = new MutationObserver(() => requestAnimationFrame(applyStagger));
+    mo.observe(list, { childList: true, subtree: true });
+  });
 })();
