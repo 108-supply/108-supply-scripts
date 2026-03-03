@@ -12,76 +12,71 @@
  */
 
 (() => {
-  // ---- CONFIG
   const FILTERS = '.filters_wrapper';
-  const STICKY_TOP = 80; // px (desktop)
-  const LIST = '[fs-list-element="list"]';
-
-  // FIX: accepts both the original and any renamed variant
-  // Sprawdź w Webflow jaką klasę MA TERAZ Twój przycisk i upewnij się że jest tu
+  const STICKY_TOP = 80;
+  const LIST_WRAP = '[fs-list-element="list"]'; // możesz zmienić na wrapper jeśli masz
   const LOAD_BTN_SELECTORS = [
     '.load-more-button',
-    '[fs-list-element="next"]',  // domyślny Finsweet selector
-    '.w-pagination-next',        // Webflow pagination fallback
+    '[fs-list-element="next"]',
+    '.w-pagination-next',
   ];
 
-  // ---- helpers
   const getLenis = () => window.lenis ?? null;
 
   const scrollToFilters = () => {
     const lenis = getLenis();
-    if (!lenis) return;
     const el = document.querySelector(FILTERS);
-    if (!el) return;
+    if (!lenis || !el) return;
     lenis.scrollTo(el, {
       offset: -STICKY_TOP,
       duration: 0.7,
-      easing: (t) => 1 - Math.pow(1 - t, 3)
+      easing: (t) => 1 - Math.pow(1 - t, 3),
     });
   };
 
-  // FIX: safe lenis.resize() — won't throw if lenis not ready yet
   const refreshLenis = () => {
     const lenis = getLenis();
     if (!lenis) return;
     try { lenis.resize(); } catch (e) {}
   };
 
-  // ---- detect "user initiated" list change
   let shouldSnap = false;
 
   document.addEventListener('click', (e) => {
+    // jeśli klik to polar checkout, nie rób nic (żeby nie mieszać)
+    if (e.target.closest('[data-polar-checkout]')) return;
+
     const isLoadMore = LOAD_BTN_SELECTORS.some(sel => e.target.closest(sel));
     if (e.target.closest('.filter-button') || isLoadMore) {
       shouldSnap = true;
+
+      // “dogrywka” — bo media potrafią zmienić wysokość po chwili
+      setTimeout(refreshLenis, 150);
+      setTimeout(refreshLenis, 400);
     }
   });
 
-  // ---- watch FS lifecycle via class toggles
-  const bindFsList = () => {
-    const list = document.querySelector(LIST);
-    if (!list) return;
+  const bindResizeObserver = () => {
+    const target = document.querySelector(LIST_WRAP) || document.body;
+    if (!target || !('ResizeObserver' in window)) return;
 
-    const mo = new MutationObserver(() => {
-      const isLoading = list.classList.contains('is-list-loading');
-      // gdy loading się skończy (FS już podmienił DOM)
-      if (!isLoading) {
-        // 1–2 klatki na layout
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            refreshLenis();
-            if (shouldSnap) scrollToFilters();
-            shouldSnap = false;
-          });
-        });
-      }
+    let raf = 0;
+    const ro = new ResizeObserver(() => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        refreshLenis();
+        if (shouldSnap) {
+          scrollToFilters();
+          shouldSnap = false;
+        }
+      });
     });
 
-    mo.observe(list, { attributes: true, attributeFilter: ['class'] });
+    ro.observe(target);
   };
 
   window.addEventListener('load', () => {
     refreshLenis();
-    bindFsList();
+    bindResizeObserver();
   });
 })();
