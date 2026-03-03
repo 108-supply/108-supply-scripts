@@ -16,11 +16,21 @@
   const FILTERS = '.filters_wrapper';
   const STICKY_TOP = 80; // px (desktop)
   const LIST = '[fs-list-element="list"]';
-  const LOAD_BTN = '.load-more-button'; // Twoja klasa na "Next" (Load more)
 
+  // FIX: accepts both the original and any renamed variant
+  // Sprawdź w Webflow jaką klasę MA TERAZ Twój przycisk i upewnij się że jest tu
+  const LOAD_BTN_SELECTORS = [
+    '.load-more-button',
+    '[fs-list-element="next"]',  // domyślny Finsweet selector
+    '.w-pagination-next',        // Webflow pagination fallback
+  ];
 
   // ---- helpers
+  const getLenis = () => window.lenis ?? null;
+
   const scrollToFilters = () => {
+    const lenis = getLenis();
+    if (!lenis) return;
     const el = document.querySelector(FILTERS);
     if (!el) return;
     lenis.scrollTo(el, {
@@ -30,8 +40,10 @@
     });
   };
 
-  // Odśwież Lenisa po zmianie wysokości listy
+  // FIX: safe lenis.resize() — won't throw if lenis not ready yet
   const refreshLenis = () => {
+    const lenis = getLenis();
+    if (!lenis) return;
     try { lenis.resize(); } catch (e) {}
   };
 
@@ -39,8 +51,8 @@
   let shouldSnap = false;
 
   document.addEventListener('click', (e) => {
-    // klik w filtr (radio/label) albo load more
-    if (e.target.closest('.filter-button') || e.target.closest(LOAD_BTN)) {
+    const isLoadMore = LOAD_BTN_SELECTORS.some(sel => e.target.closest(sel));
+    if (e.target.closest('.filter-button') || isLoadMore) {
       shouldSnap = true;
     }
   });
