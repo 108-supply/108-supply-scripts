@@ -180,25 +180,21 @@
         // Keep example playing too, no pause
         if (ex && (ex.getAttribute('src') || ex.currentSrc)) safePlay(ex);
 
-        // Sync dark to example's current time
-        if (ex && ex.readyState >= 1 && dk.readyState >= 1) {
-          dk.currentTime = ex.currentTime;
-        } else if (ex) {
-          dk.addEventListener('loadedmetadata', function syncOnce() {
-            dk.removeEventListener('loadedmetadata', syncOnce);
-            dk.currentTime = ex.currentTime;
-          });
-        }
-
-        // Keep them synced while hovering (rAF loop, auto-stops on mouseout)
-        if (pair.__108_syncRAF) cancelAnimationFrame(pair.__108_syncRAF);
-        pair.__108_syncRAF = requestAnimationFrame(function syncLoop() {
-          if (!pair.classList.contains('show-dark')) return;
-          if (ex && dk && Math.abs(ex.currentTime - dk.currentTime) > 0.05) {
-            dk.currentTime = ex.currentTime;
+        // One-shot sync: wait until dark is actually playing, then align once
+        // No continuous rAF loop — same duration + same loop = negligible drift
+        if (ex) {
+          function syncOnce() {
+            if (dk.readyState >= 2 && !dk.paused) {
+              dk.currentTime = ex.currentTime;
+            } else {
+              dk.addEventListener('playing', function onPlaying() {
+                dk.removeEventListener('playing', onPlaying);
+                dk.currentTime = ex.currentTime;
+              });
+            }
           }
-          pair.__108_syncRAF = requestAnimationFrame(syncLoop);
-        });
+          syncOnce();
+        }
 
         showDark(pair);
       }, 60);
@@ -216,12 +212,6 @@
 
       const pair = card.querySelector(PAIR_SEL);
       if (!pair) return;
-
-      // Stop sync loop
-      if (pair.__108_syncRAF) {
-        cancelAnimationFrame(pair.__108_syncRAF);
-        pair.__108_syncRAF = null;
-      }
 
       showExample(pair);
     }, true);
