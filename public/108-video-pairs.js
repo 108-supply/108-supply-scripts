@@ -180,6 +180,26 @@
         // Keep example playing too, no pause
         if (ex && (ex.getAttribute('src') || ex.currentSrc)) safePlay(ex);
 
+        // Sync dark to example's current time
+        if (ex && ex.readyState >= 1 && dk.readyState >= 1) {
+          dk.currentTime = ex.currentTime;
+        } else if (ex) {
+          dk.addEventListener('loadedmetadata', function syncOnce() {
+            dk.removeEventListener('loadedmetadata', syncOnce);
+            dk.currentTime = ex.currentTime;
+          });
+        }
+
+        // Keep them synced while hovering (rAF loop, auto-stops on mouseout)
+        if (pair.__108_syncRAF) cancelAnimationFrame(pair.__108_syncRAF);
+        pair.__108_syncRAF = requestAnimationFrame(function syncLoop() {
+          if (!pair.classList.contains('show-dark')) return;
+          if (ex && dk && Math.abs(ex.currentTime - dk.currentTime) > 0.05) {
+            dk.currentTime = ex.currentTime;
+          }
+          pair.__108_syncRAF = requestAnimationFrame(syncLoop);
+        });
+
         showDark(pair);
       }, 60);
     }, true);
@@ -196,6 +216,12 @@
 
       const pair = card.querySelector(PAIR_SEL);
       if (!pair) return;
+
+      // Stop sync loop
+      if (pair.__108_syncRAF) {
+        cancelAnimationFrame(pair.__108_syncRAF);
+        pair.__108_syncRAF = null;
+      }
 
       showExample(pair);
     }, true);
