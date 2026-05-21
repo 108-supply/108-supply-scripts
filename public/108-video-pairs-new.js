@@ -2,12 +2,13 @@
  * 108™ Supply — Video Pairs (JS) · rev2 (Barba-ready)
  * Desktop: example + dark with hover swap. Touch: example only (dark removed).
  * Lazy via data-src. Autoplay via IntersectionObserver + force-play for in-view.
+ * Reinit po przejściu Barby przez window.on108Page (fallback: load/pageshow).
  */
 (() => {
-  const PAIR   = '[data-video-pair]';
-  const LIST   = '[fs-list-element="list"]';
-  const CARD   = '.motion-template_card';
-  const OVL    = '.card_link_overlay';
+  const PAIR = '[data-video-pair]';
+  const LIST = '[fs-list-element="list"]';
+  const CARD = '.motion-template_card';
+  const OVL  = '.card_link_overlay';
 
   const IS_TOUCH = !matchMedia('(hover: hover) and (pointer: fine)').matches;
   document.documentElement.classList.toggle('is-touch', IS_TOUCH);
@@ -15,7 +16,7 @@
   const ex = p => p.querySelector('video[data-role="example"]');
   const dk = p => p.querySelector('video[data-role="dark"]');
 
-  // Lazy: set src from data-src once. Returns true if a source exists.
+  // Lazy: ustaw src z data-src raz. Zwraca true jeśli źródło istnieje.
   function load(v) {
     if (!v) return false;
     if (v.currentSrc || v.getAttribute('src')) return true;
@@ -26,8 +27,8 @@
   const play  = v => { if (v) { const p = v.play(); if (p) p.catch(() => {}); } };
   const pause = v => { if (v) { try { v.pause(); } catch (_) {} } };
 
-  const showExample = p => { p.classList.add('show-example');  p.classList.remove('show-dark'); };
-  const showDark    = p => { p.classList.add('show-dark');     p.classList.remove('show-example'); };
+  const showExample = p => { p.classList.add('show-example'); p.classList.remove('show-dark'); };
+  const showDark    = p => { p.classList.add('show-dark');    p.classList.remove('show-example'); };
 
   // --- autoplay observer
   const io = new IntersectionObserver((entries) => {
@@ -38,7 +39,7 @@
     }
   }, { rootMargin: IS_TOUCH ? '120px 0px' : '200px 0px', threshold: 0.01 });
 
-  // --- init a single pair (idempotent)
+  // --- init pojedynczej pary (idempotentne)
   function initPair(p) {
     if (p.__108_inited) return;
     p.__108_inited = true;
@@ -57,8 +58,8 @@
     io.observe(p);
   }
 
-  // --- PUBLIC: scan + force-play whatever is already in view
-  // (Barba swaps DOM mid-animation, so IO can miss the top of the page.)
+  // --- PUBLIC: scan + force-play tego co już jest w viewporcie
+  // (Barba podmienia DOM w trakcie animacji, więc IO bywa leniwy na górze strony)
   function refresh() {
     requestAnimationFrame(() => {
       document.querySelectorAll(PAIR).forEach(initPair);
@@ -69,9 +70,8 @@
       });
     });
   }
-  window._108VideoPairsRefresh = refresh; // Barba calls this in afterEnter
 
-  // --- hover swap (desktop only), one global listener pair
+  // --- hover swap (desktop), jedna para globalnych listenerów
   if (!IS_TOUCH) {
     let timer = null;
     document.addEventListener('mouseover', (e) => {
@@ -82,7 +82,6 @@
         if (!d) return;
         if (load(d)) play(d);
         play(x);
-        // align dark to example's current frame, once
         const align = () => { if (d.readyState >= 2) d.currentTime = x.currentTime; };
         if (!d.paused && d.readyState >= 2) align();
         else d.addEventListener('playing', function on() { d.removeEventListener('playing', on); align(); });
@@ -101,7 +100,8 @@
   const list = document.querySelector(LIST);
   if (list) new MutationObserver(() => refresh()).observe(list, { childList: true, subtree: true });
 
-  // --- lifecycle
+  // --- lifecycle: pierwszy load + każda Barba przez on108Page; pageshow jako fallback
   addEventListener('pageshow', refresh);
-  window.on108Page(refresh);   // ← łapie pierwszy load i każdą Barbę
+  if (window.on108Page) window.on108Page(refresh);
+  else addEventListener('load', refresh);
 })();
