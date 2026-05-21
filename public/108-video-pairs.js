@@ -217,7 +217,10 @@
     }, true);
   }
 
-  // BFCache return: just rescan + let IO do its job
-  window.addEventListener('pageshow', () => requestAnimationFrame(scan));
-  window.addEventListener('load', scan);
+// BFCache return: just rescan + let IO do its job
+window.addEventListener('pageshow', () => requestAnimationFrame(scan));
+window.addEventListener('load', scan);
+
+// 108™ · Barba bridge — expose rescan so it can run after page transitions
+window._108VideoPairsRescan = () => requestAnimationFrame(scan);
 })();
