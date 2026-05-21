@@ -102,6 +102,6 @@
   if (list) new MutationObserver(() => refresh()).observe(list, { childList: true, subtree: true });
 
   // --- lifecycle
-  addEventListener('load', refresh);
   addEventListener('pageshow', refresh);
+  window.on108Page(refresh);   // ← łapie pierwszy load i każdą Barbę
 })();
