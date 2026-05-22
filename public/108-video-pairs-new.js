@@ -1,8 +1,14 @@
 /*!
- * 108™ Supply — Video Pairs (JS) · rev2 (Barba-ready)
+ * 108™ Supply — Video Pairs (JS) · rev3 (Barba-ready)
  * Desktop: example + dark with hover swap. Touch: example only (dark removed).
  * Lazy via data-src. Autoplay via IntersectionObserver + force-play for in-view.
  * Reinit po przejściu Barby przez window.on108Page (fallback: load/pageshow).
+ *
+ * rev3 — naprawa hovera:
+ *  - per-para stan hovera (koniec z kumulacją listenerów 'playing')
+ *  - przy zejściu dark jest pauzowany (koniec z marnowaniem dekodera w tle)
+ *  - twarda synchronizacja: dark dosuwany do example PRZED pokazaniem,
+ *    plus jednorazowy re-sync gdy dark realnie ruszy
  */
 (() => {
   const PAIR = '[data-video-pair]';
@@ -30,12 +36,16 @@
   const showExample = p => { p.classList.add('show-example'); p.classList.remove('show-dark'); };
   const showDark    = p => { p.classList.add('show-dark');    p.classList.remove('show-example'); };
 
-  // --- autoplay observer
+  // --- autoplay observer (example w viewporcie gra, poza — pauza)
   const io = new IntersectionObserver((entries) => {
     for (const e of entries) {
       const p = e.target;
       if (e.isIntersecting) { if (load(ex(p))) play(ex(p)); }
-      else { pause(ex(p)); pause(dk(p)); }
+      else {
+        pause(ex(p));
+        pause(dk(p));            // dark też pauzujemy poza ekranem
+        p.__hovering = false;    // reset stanu hovera gdy znika z viewportu
+      }
     }
   }, { rootMargin: IS_TOUCH ? '120px 0px' : '200px 0px', threshold: 0.01 });
 
@@ -59,7 +69,6 @@
   }
 
   // --- PUBLIC: scan + force-play tego co już jest w viewporcie
-  // (Barba podmienia DOM w trakcie animacji, więc IO bywa leniwy na górze strony)
   function refresh() {
     requestAnimationFrame(() => {
       document.querySelectorAll(PAIR).forEach(initPair);
@@ -71,28 +80,76 @@
     });
   }
 
-  // --- hover swap (desktop), jedna para globalnych listenerów
+  // === HOVER SWAP (desktop) — przepisane, per-para, bez kumulacji ===
   if (!IS_TOUCH) {
-    let timer = null;
+
+    // Wchodzi w stan "dark" dla danej pary. Idempotentne dzięki p.__hovering.
+    function enterDark(p) {
+      if (p.__hovering) return;     // już pokazujemy dark → nic nie rób
+      p.__hovering = true;
+
+      const x = ex(p), d = dk(p);
+      if (!d || !x) return;
+
+      // jednorazowo sprzątnij ewentualny stary listener sync z poprzedniego cyklu
+      if (p.__syncHandler) { d.removeEventListener('playing', p.__syncHandler); p.__syncHandler = null; }
+
+      load(d);
+
+      // TWARDY SYNC: ustaw czas dark = example ZANIM zacznie grać/pokażemy
+      try { d.currentTime = x.currentTime; } catch (_) {}
+
+      play(x);  // example gra dalej
+      play(d);  // dark startuje
+
+      // jednorazowy re-sync gdy dark faktycznie ruszy (dekoder gotowy)
+      const handler = () => {
+        d.removeEventListener('playing', handler);
+        p.__syncHandler = null;
+        // dosuń jeszcze raz, ale tylko jeśli wciąż hoverujemy tę parę
+        if (p.__hovering) { try { d.currentTime = x.currentTime; } catch (_) {} }
+      };
+      p.__syncHandler = handler;
+      d.addEventListener('playing', handler);
+
+      showDark(p);
+    }
+
+    // Wychodzi ze stanu "dark". Pauzuje dark (oszczędza dekoder), sprząta listener.
+    function leaveDark(p) {
+      if (!p.__hovering) return;
+      p.__hovering = false;
+
+      const d = dk(p);
+      if (d) {
+        if (p.__syncHandler) { d.removeEventListener('playing', p.__syncHandler); p.__syncHandler = null; }
+        pause(d);                   // dark nie gra w tle gdy niewidoczny
+      }
+      showExample(p);
+    }
+
+    let hoverTimer = null;
+    let pendingPair = null;
+
     document.addEventListener('mouseover', (e) => {
       const ovl = e.target.closest(OVL); if (!ovl) return;
       const p = ovl.closest(CARD)?.querySelector(PAIR); if (!p) return;
-      timer = setTimeout(() => {
-        const d = dk(p), x = ex(p);
-        if (!d) return;
-        if (load(d)) play(d);
-        play(x);
-        const align = () => { if (d.readyState >= 2) d.currentTime = x.currentTime; };
-        if (!d.paused && d.readyState >= 2) align();
-        else d.addEventListener('playing', function on() { d.removeEventListener('playing', on); align(); });
-        showDark(p);
+
+      // mały debounce — nie reagujemy na muśnięcia myszą
+      pendingPair = p;
+      clearTimeout(hoverTimer);
+      hoverTimer = setTimeout(() => {
+        if (pendingPair === p) enterDark(p);
       }, 60);
     }, true);
+
     document.addEventListener('mouseout', (e) => {
       const ovl = e.target.closest(OVL); if (!ovl) return;
-      clearTimeout(timer); timer = null;
-      const p = ovl.closest(CARD)?.querySelector(PAIR);
-      if (p) showExample(p);
+      const p = ovl.closest(CARD)?.querySelector(PAIR); if (!p) return;
+
+      // anuluj oczekujący enter jeśli zjechaliśmy zanim wystrzelił
+      if (pendingPair === p) { clearTimeout(hoverTimer); pendingPair = null; }
+      leaveDark(p);
     }, true);
   }
 
