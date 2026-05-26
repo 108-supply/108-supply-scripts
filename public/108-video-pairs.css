@@ -18,7 +18,7 @@
   height:100%;
   object-fit:cover;
   display:block;
-  transition:opacity 200ms ease;
+  transition:opacity 108ms ease;
   will-change:opacity;
 }
 

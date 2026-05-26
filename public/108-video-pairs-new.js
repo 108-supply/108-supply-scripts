@@ -1,12 +1,17 @@
 /*!
- * 108™ Supply — Video Pairs (JS) · rev4 (Barba-ready)
+ * 108™ Supply — Video Pairs (JS) · rev5 (Barba-ready)
  * Desktop: example + dark with hover swap. Touch: example only (dark removed).
  * Lazy via data-src. Autoplay via IntersectionObserver + force-play for in-view.
  * Reinit po przejściu Barby przez window.on108Page (fallback: load/pageshow).
  *
+ * rev5 — bez dziury w przejściu:
+ *  - dark odsłaniany DOPIERO gdy realnie ruszy (ma pierwszą klatkę) → zero tła pod filmami
+ *  - example wisi na wierzchu aż dark gotowy, dopiero wtedy showDark
+ *  - fallback gdy dark już zbuforowany i 'playing' nie wystrzeli
+ *  - szybsze przejście: skróć transition opacity w CSS (patrz nota na końcu)
+ *
  * rev4 — hover bez card_link_overlay:
  *  - hover swap podpięty pod .template-card (CARD), overlay usunięty ze strony
- *  - cała pozostała logika jak w rev3 (per-para stan, twardy sync, re-sync na 'playing')
  *
  * rev3 — naprawa hovera:
  *  - per-para stan hovera (koniec z kumulacją listenerów 'playing')
@@ -94,28 +99,32 @@
       const x = ex(p), d = dk(p);
       if (!d || !x) return;
 
-      // jednorazowo sprzątnij ewentualny stary listener sync z poprzedniego cyklu
+      // jednorazowo sprzątnij ewentualny stary listener z poprzedniego cyklu
       if (p.__syncHandler) { d.removeEventListener('playing', p.__syncHandler); p.__syncHandler = null; }
 
       load(d);
 
-      // TWARDY SYNC: ustaw czas dark = example ZANIM zacznie grać/pokażemy
+      // TWARDY SYNC: ustaw czas dark = example ZANIM zacznie grać
       try { d.currentTime = x.currentTime; } catch (_) {}
 
-      play(x);  // example gra dalej
-      play(d);  // dark startuje
+      play(x);  // example gra dalej (wciąż na wierzchu)
+      play(d);  // dark startuje w tle, niewidoczny
 
-      // jednorazowy re-sync gdy dark faktycznie ruszy (dekoder gotowy)
-      const handler = () => {
-        d.removeEventListener('playing', handler);
+      // NIE pokazujemy dark od razu — czekamy aż realnie ruszy (ma pierwszą klatkę),
+      // dopiero wtedy gasimy example. Zero dziury z tłem.
+      const reveal = () => {
+        d.removeEventListener('playing', reveal);
         p.__syncHandler = null;
-        // dosuń jeszcze raz, ale tylko jeśli wciąż hoverujemy tę parę
-        if (p.__hovering) { try { d.currentTime = x.currentTime; } catch (_) {} }
+        if (!p.__hovering) return;            // mysz zjechała zanim dark wstał → nic nie rób
+        try { d.currentTime = x.currentTime; } catch (_) {}  // ostatni dosyn
+        showDark(p);                          // dopiero TERAZ przełącz: dark gotowy
       };
-      p.__syncHandler = handler;
-      d.addEventListener('playing', handler);
+      p.__syncHandler = reveal;
+      d.addEventListener('playing', reveal);
 
-      showDark(p);
+      // Fallback: gdy dark już zbuforowany i gra (powrót na hoverowaną już kartę),
+      // 'playing' może nie wystrzelić — odsłoń natychmiast.
+      if (d.readyState >= 3 && !d.paused) { reveal(); }
     }
 
     // Wychodzi ze stanu "dark". Pauzuje dark (oszczędza dekoder), sprząta listener.
