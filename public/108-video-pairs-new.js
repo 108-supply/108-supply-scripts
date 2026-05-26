@@ -1,8 +1,12 @@
 /*!
- * 108™ Supply — Video Pairs (JS) · rev3 (Barba-ready)
+ * 108™ Supply — Video Pairs (JS) · rev4 (Barba-ready)
  * Desktop: example + dark with hover swap. Touch: example only (dark removed).
  * Lazy via data-src. Autoplay via IntersectionObserver + force-play for in-view.
  * Reinit po przejściu Barby przez window.on108Page (fallback: load/pageshow).
+ *
+ * rev4 — hover bez card_link_overlay:
+ *  - hover swap podpięty pod .template-card (CARD), overlay usunięty ze strony
+ *  - cała pozostała logika jak w rev3 (per-para stan, twardy sync, re-sync na 'playing')
  *
  * rev3 — naprawa hovera:
  *  - per-para stan hovera (koniec z kumulacją listenerów 'playing')
@@ -13,8 +17,7 @@
 (() => {
   const PAIR = '[data-video-pair]';
   const LIST = '[fs-list-element="list"]';
-  const CARD = '.motion-template_card';
-  const OVL  = '.card_link_overlay';
+  const CARD = '.template-card';
 
   const IS_TOUCH = !matchMedia('(hover: hover) and (pointer: fine)').matches;
   document.documentElement.classList.toggle('is-touch', IS_TOUCH);
@@ -132,8 +135,8 @@
     let pendingPair = null;
 
     document.addEventListener('mouseover', (e) => {
-      const ovl = e.target.closest(OVL); if (!ovl) return;
-      const p = ovl.closest(CARD)?.querySelector(PAIR); if (!p) return;
+      const card = e.target.closest(CARD); if (!card) return;
+      const p = card.querySelector(PAIR); if (!p) return;
 
       // mały debounce — nie reagujemy na muśnięcia myszą
       pendingPair = p;
@@ -144,8 +147,10 @@
     }, true);
 
     document.addEventListener('mouseout', (e) => {
-      const ovl = e.target.closest(OVL); if (!ovl) return;
-      const p = ovl.closest(CARD)?.querySelector(PAIR); if (!p) return;
+      const card = e.target.closest(CARD); if (!card) return;
+      // ignoruj ruchy myszy wewnątrz tej samej karty (child → child)
+      if (card.contains(e.relatedTarget)) return;
+      const p = card.querySelector(PAIR); if (!p) return;
 
       // anuluj oczekujący enter jeśli zjechaliśmy zanim wystrzelił
       if (pendingPair === p) { clearTimeout(hoverTimer); pendingPair = null; }
